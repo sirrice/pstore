@@ -78,11 +78,8 @@ class BenchOp(Op):
 
     
     def run(self, inputs, run_id):
-
         arr = inputs[0]
         
-        fprefix = pstore_name(arr.shape, self.strat, self.noutput, self.fanin,
-                              self.oclustsize, self.density)
         pstore = self.pstore(run_id)
 
         tmparr = np.zeros(arr.shape)
@@ -92,12 +89,15 @@ class BenchOp(Op):
         if pstore.strat.mode == Mode.PTR:
             for incoords, outcoords in zip(ingen, outgen):
                 pstore.write(outcoords, incoords)
-        if pstore.strat.mode == Mode.PT_MAPFUNC:
+        elif pstore.strat.mode == Mode.PT_MAPFUNC:
             for incoords, outcoords, in zip(ingen, outgen):
                 pstore.write(outcoords, '')
+        else:
+            for incoords, outcoords in zip(ingen, outgen):
+                pass
 
         pstore.close()
-        return fprefix, pstore
+        return pstore
 
     def fmap_obj(self, obj, run_id, arridx):
         return obj[0]
@@ -112,7 +112,7 @@ class BenchOp(Op):
         return [(0,0)]
 
     def supported_model(self):
-        return [Mode.FULL_MAPFUNC, Mode.PTR]
+        return [Mode.PT_MAPFUNC, Mode.FULL_MAPFUNC, Mode.PTR]
         
     
 
@@ -124,6 +124,9 @@ class BoxTestOp(Op):
             self.noutput = noutput
             self._arr = None
 
+        def get_input_shapes(self, run_id):
+            return [self.shape]
+        
         def get_input_shape(self, run_id, arridx):
             return self.shape
 
@@ -158,12 +161,15 @@ class BoxTestOp(Op):
         cost = 0.0
         for outcoords, incoords in box_prov(arr, self.runtime, self.fanin, self.density):
             pstore.write(outcoords, incoords)
-        rpstore = pstore.close()
+        pstore.close()
         cost += time.time() - start
 
         #print "sleeping %f\t%d\t%d\tcost %f" % ( tosleep, arrsize, reduce(mul,self.shape), cost)
-        return pstore.fprefix, pstore
+        return pstore
     
+
+    def output_shape(self, run_id):
+        return self.wrapper.get_input_shape(run_id, 0)
         
 
 def box_prov(arr, runtime, fanin, density):

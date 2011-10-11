@@ -33,6 +33,13 @@ class Runtime(object):
             Runtime._instance = Runtime()
         return Runtime._instance
 
+    def clear(self):
+        self.cur_strats = {} # op -> strategy
+        self.old_strats = {} # op -> {run_id -> strat}
+        self.pstores = {}    # (op,run_id) -> pstore
+        self.override = {}   # (op,run_id) -> pstore
+        
+
     def set_strategy(self, op, strat):
         self.cur_strats[op] = strat
 

@@ -11,24 +11,39 @@ from runtime import *
 import numpy as np
 
 
+def run_exp(strat, runtime, noutput, fanin, density, shape, qsize):
+    arr, pstore, wcosts = setup_box(strat, runtime, noutput, fanin, density, shape)
+    qcosts = run_box(runtime, arr, pstore, qsize)
+    return wcosts, qcosts
 
+def run_model(strat, runtime, noutput, fanin, density, shape, qsize):
+    disk = disk_model(strat, fanin, 1, density, 100)
+    overhead = write_model(strat, fanin, 1, density, 100)
+    fcost = forward_model(strat, fanin, 1, density, 100, runtime, qsize, 1.0,
+                          reduce(mul, shape))
+    bcost = backward_model(strat, fanin, 1, density, 100, runtime, qsize, 1.0,
+                           reduce(mul, shape))
+    wcosts = (0,0,overhead,runtime,disk)
+    rcosts = (fcost, 0, bcost, 0)
+    return wcosts, rcosts
+        
 
 def setup_box(strat, runtime, noutput, fanin, density, shape):
-    boxop = BoxTestOp(runtime, noutput, fanin, density, shape) 
+    Runtime.instance().clear()    
+    boxop = BoxTestOp(runtime, noutput, fanin, density, shape)
     Runtime.instance().set_strategy(boxop, strat)
     arr = boxop.wrapper.get_inputs(0)[0]
 
     start = time.time()
-    fprefix, wpstore, rpstore = boxop.run([arr], 0)
-    opcost = (time.time() - start) - wpstore.runtime
-    writecosts = (wpstore.serializecost,
-                  wpstore.writecost, 
-                  wpstore.runtime,
+    pstore = boxop.run([arr], 0)
+    opcost = (time.time() - start) - pstore.get_stat('write', 0)
+    writecosts = (pstore.get_stat('_serialize'),
+                  0,
+                  pstore.get_stat('write'),
                   opcost,
-                  #runtime * reduce(mul, shape) / 100.0,
-                  rpstore.disk_size())
+                  pstore.disk())
     
-    return arr, rpstore, writecosts
+    return arr, pstore, writecosts
 
 def run_box(runtime, arr, rpstore, qsize, perc_missing = 0.0):
     rpstore.op.runtime = runtime
@@ -48,32 +63,49 @@ def run_box(runtime, arr, rpstore, qsize, perc_missing = 0.0):
 
     q = list(coords)[:qsize]
 
-    res = PQDenseResult(arr.shape)
     cost = 0.0
     fcosts = []
     for i in xrange(5):
-        res.clear()
         start = time.time()
-        rpstore.forward_set(0, q, res, reduce(mul, shape))
+        nres = 0
+        for coord in rpstore.join(q, 0, False):
+            nres += 1
         if i <= 1: continue
         cost = time.time() - start
-        fcosts.append((cost, len(res)))
+        fcosts.append((cost, nres))
     fcosts = tuple(map(numpy.mean, zip(*fcosts)))        
 
     bcosts = []
     for i in xrange(5):
-        res.clear()
         start = time.time()
-        rpstore.backward_set(0, q, res, reduce(mul, shape))
+        nres = 0
+        for coord in rpstore.join(q, 0, True):
+            nres += 1
         if i <= 1: continue
         cost = time.time() - start
-        bcosts.append((cost, len(res)))
+        bcosts.append((cost, nres))
+
     bcosts = tuple(map(numpy.mean, zip(*bcosts)))    
         
         
     return [fcosts[0], fcosts[1], bcosts[0], bcosts[1]]
 
 if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) < 2:
+        print """python pstore_box.py  [run type]  [run_id]
+        
+args:
+    runtype: model|exp
+             default=exp
+             
+    runid:   >0 to specify runid
+             -1 to not store
+             nothing to create new runid"""
+        exit()
+
+    
     qsizes = [1,10,50]
     densities = [1, 0.9, 0.5, 0.1, 0.05]
     runtimes = [0,1,5,10]
@@ -83,7 +115,11 @@ if __name__ == '__main__':
     shape = (1000, 1000)
     ys = []
     labels = []
-    strats = [STRAT_BOX, STRAT_PSET]
+    strats = [
+        Strat.single(Mode.QUERY, Spec(Spec.NONE, Spec.NONE), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),        
+        ]
 
     emptyarr = np.empty(shape)
     arrid = ArrayStore.instance().add(emptyarr)
@@ -91,34 +127,43 @@ if __name__ == '__main__':
     del emptyarr
 
     conn = get_db()
-    runid = add_run(conn, inputsize, shape, notes= 'box_model')
 
-    # qsizes = [10]
+    if sys.argv[1].strip() == 'model':
+        experiment = run_model
+        notes = 'box_model'
+    else:
+        experiment = run_exp
+        notes = 'box'
+
+    if len(sys.argv) > 2:
+        runid = int(sys.argv[2])
+    else:
+        runid = add_run(conn, inputsize, shape, notes=notes)
+
+    print "runid: ", runid
+    print "experiment: ", sys.argv[1]
+
+
+    # qsizes = [50]
     # densities = [0.05]
-    # runtimes = [1]
+    # runtimes = [10]
+    # strats = [Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True)]
+    #           #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)    ]
     for qsize in qsizes:
         for density in densities:
             labels.append("%f\t%d" % (density, qsize))
             ys.append([])        
             for strat in strats:
                 for runtime in runtimes:
-                    disk = disk_model(strat, fanin, 1, density, 100)
-                    overhead = write_model(strat, fanin, 1, density, 100)
-                                         
-                    fcost = forward_model(strat, fanin, 1, density, 100, runtime, qsize, 1.0,
-                                          reduce(mul, shape))
-                    bcost = backward_model(strat, fanin, 1, density, 100, runtime, qsize, 1.0,
-                                           reduce(mul, shape))
-                    wcosts = (0,0,overhead,runtime,disk)
-                    rcosts = (fcost, 0, bcost, 0)
-
                     params = (strat, fanin, oclustsize, density, noutput, qsize)
-                    #arr, rpstore, wcosts = setup_box(strat, runtime, noutput, fanin, density, shape)
-                    #rcosts = run_box(runtime, arr, rpstore, qsize, 0.0)
 
-                    add_datapoint(conn, runid, params, wcosts, rcosts)
+                    wcosts, rcosts = experiment(strat, runtime, noutput, fanin, density, shape, qsize)
+
+                    if runid > 0:
+                        add_datapoint(conn, runid, params, wcosts, rcosts)
                     
-                    print "%f\t%f\t%d\t%s\t%f\t%f" % (density, runtime, qsize, strat, rcosts[0], rcosts[2])
+                    print "%f\t%f\t%d\t%s\t%f\t%d\t%f\t%d" % (density, runtime, qsize, strat,
+                                                              rcosts[0], rcosts[1], rcosts[2], rcosts[3])
                     #rpstore.close()
                     #del arr
                     #del rpstore

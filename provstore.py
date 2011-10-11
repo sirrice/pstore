@@ -1,5 +1,5 @@
 import struct, bsddb, math, time
-from cStringIO import StringIO
+from StringIO import StringIO
 from operator import mul, or_, and_
 
 from strat import *
@@ -74,6 +74,12 @@ class IPstore(object):
         self.fanins = [0] * self.nargs
         self.noutcells  = 0
         self.ncalls = 0
+
+    def clear_stats(self):
+        self.stats = {}
+
+    def get_stat(self, attr, default=0):
+        return self.stats.get(attr, default)
         
 
     def get_iter(self):
@@ -329,7 +335,6 @@ class DiskStore(IPstore):
                     for coord in extract(r):
                         yield coord
                     break
-
         self.close()
 
     def hash_join(self, left, arridx):
@@ -353,11 +358,12 @@ class DiskStore(IPstore):
         else:
             self.bdb = bsddb.hashopen(self.fname)
 
+    @instrument
     def close(self):
         try:
             self.bdb.close()
             self.bdb = None
-        except:
+        except Exception, e:
             pass
 
 
@@ -443,7 +449,7 @@ class PStore3(DiskStore):
     @instrument
     def write(self, outcoords, *incoords_arr):
         self.update_stats(outcoords, *incoords_arr)
-        
+
         val = StringIO()
         if Spec.BOX == self.spec.payload:
             boxes = map(bbox, incoords_arr)
@@ -454,7 +460,6 @@ class PStore3(DiskStore):
                 encs = map(lambda coord: self.enc_in(coord, arridx), incoords)
                 self._serialize(encs, val, self.spec.payload)
         val = val.getvalue()
-
 
         if Spec.COORD_ONE == self.spec.outcoords:
             enc_outcoords = map(self.enc_out, outcoords)
@@ -501,6 +506,7 @@ class PStore3(DiskStore):
 class IBox(object):
     def extract_incells(self, obj, arridx, outcoords, inputs):
         boxes = self.extract_inboxes(obj)
+
         newinputs = []
         for curarridx, curbox in enumerate(boxes):
             tmparr, tmptomap, tmpfrommap = subarray(inputs[curarridx], curbox)
@@ -516,6 +522,7 @@ class IBox(object):
         
     def extract_outcells(self, obj, arridx, incoords, inputs):
         boxes = self.extract_inboxes(obj)
+
         newinputs = []
         for curarridx, curbox in enumerate(boxes):
             tmparr, tmptomap, tmpfrommap = subarray(inputs[curarridx], curbox)    
@@ -579,13 +586,15 @@ class IBox(object):
 
 
         inputs = self.op.wrapper.get_inputs(self.run_id)
-
+        nfound = 0
         for r in self.get_iter():
             for l in left:
                 if pred(l,r):
+                    nfound += 1
                     for coord in extract(r, left, inputs):
                         yield coord
                     break
+        print "nfound", nfound
         self.close()
 
 
@@ -641,6 +650,16 @@ def create_ftype(ptype):
                 pstore.nargs = 1
                 self.pstores.append(pstore)
 
+        def clear_stats(self):
+            self.stats = {}
+            for pstore in self.pstores:
+                pstore.clear_stats()
+            
+        def get_stat(self, attr, default=0):
+            if not len(self.pstores):
+                return default
+            return sum([pstore.get_stat(attr, 0) for pstore in self.pstores])
+
         def disk(self):
             return sum([pstore.disk() for pstore in self.pstores])
 
@@ -650,7 +669,6 @@ def create_ftype(ptype):
                 pstore.write(incoords, outcoords)
     
         def join(self, left, arridx, backward=True):
-            print self.pstores[arridx]
             return self.pstores[arridx].join(left, 0, not backward)
 
         def open(self, new=False):
@@ -732,6 +750,17 @@ class MultiPStore(IPstore):
         self.bpstore = bpstore
         self.fpstore = fpstore
 
+    def clear_stats(self):
+        self.stats = {}
+        self.bpstore.clear_stats()
+        self.fpstore.clear_stats()
+
+    def get_stat(self, attr, default=0):
+        if not len(self.pstores):
+            return default
+        return sum([pstore.get_stat(attr, 0) for pstore in (self.bpstore, self.fpstore)])
+
+
     def disk(self):
         return self.bpstore.disk() + self.fpstore.disk()
 
@@ -803,6 +832,19 @@ class CompositePStore(IPstore):
             elif isinstance(pstore, PStore3):
                 self.pstore3 = pstore
 
+
+    def clear_stats(self):
+        for pstore in pstores:
+            pstore.clear_stats()
+        self.stats = {}
+
+
+    def get_stat(self, attr, default=0):
+        if not len(self.pstores):
+            return default
+        return sum([pstore.get_stat(attr, 0) for pstore in self.pstores])
+
+
     def disk(self):
         return sum([pstore.disk() for pstore in self.pstores])
 
@@ -832,3 +874,96 @@ class CompositePStore(IPstore):
         for pstore in self.pstores:
             pstore.close()
         
+
+
+
+
+if __name__ == '__main__':
+    from op import *
+    from cStringIO import StringIO
+    import timeit
+    class BenchOp(Op):
+        class Wrapper(object):
+            def __init__(self, shape):
+                self.nargs = 1
+                self.shape = shape
+                self._arr = None
+
+            def get_input_shapes(self, run_id):
+                return [self.shape]
+
+            def get_input_shape(self, run_id, arridx):
+                return self.shape
+
+            def get_inputs(self, run_id):
+                return [self._arr]
+
+
+        def __init__(self, shape):
+            super(BenchOp, self).__init__()
+            self.wrapper = BenchOp.Wrapper(shape)
+            self.workflow = None
+
+        def run(self, inputs, run_id):
+            pass
+
+        def output_shape(self, run_id):
+            return (100,100)
+
+
+    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True)
+
+    op = BenchOp((100,100))
+
+    all_coords = []
+    for n in [1, 10, 100, 1000, 10000]:
+        coords = [(i / 100, i % 100) for i in xrange(n)]
+        all_coords.append(coords)
+
+    Runtime.instance().set_strategy(op, strat)
+    pstore = op.pstore(1)
+
+    def ser(pstore, coords, spec):
+        buf = StringIO()        
+        if spec == Spec.BOX:
+            encs = bbox(coords)
+        else:
+            encs = map(pstore.enc_out, coords)
+
+        if spec == Spec.COORD_ONE:
+            for enc in encs:
+                buf.seek(0)
+                pstore._serialize((enc,), buf, spec)
+        else:
+            pstore._serialize(encs, buf, spec)
+        return buf.getvalue()
+        
+    def par(pstore, s, spec):
+        if spec == Spec.BOX:
+            pstore._parse(StringIO(s), spec)
+        elif spec == Spec.KEY:
+            pstore._parse(StringIO(s), spec)
+        else:
+            encs = pstore._parse(StringIO(s), spec)
+            if encs:
+                map(pstore.dec_out, encs)
+
+
+    for spec in Spec.all():
+        for coords in all_coords:
+            if spec == Spec.BINARY: continue
+            s = ser(pstore, coords, spec)
+
+            f = lambda: ser(pstore, coords, spec)
+            h = lambda: par(pstore, s, spec)
+
+            t = timeit.Timer(h)
+            t.timeit(100)
+            cost = t.timeit(1000) / 1000.0
+            print '%d\t%d\t' % (len(coords), spec), float(cost) / len(coords)
+            
+            
+        
+
+    
+    

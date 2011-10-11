@@ -40,7 +40,11 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
     except:
         pass
 
-    cols = 'fanin,fanout,density,nqs,noutput,opcost'.split(',')
+    if table == 'tmp':
+        cols = 'fanin,fanout,density,nqs,noutput,writecost'.split(',')
+    else:
+        cols = 'fanin,fanout,density,nqs,noutput,opcost'.split(',')
+
     cols.remove(xlabel)
     strats = get_strats(conn, run, table, where)
 
@@ -72,19 +76,25 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
             _params.append(strat)
 
             q = 'select %s, %s from %s where rid = %d and %s' % (xlabel,ylabel,table,run,WHERE)
+            print q % tuple(_params)
             c.execute(q, tuple(_params))
             pairs = c.fetchall()
-            print pairs
             xs.update([pair[0] for pair in pairs])
             lines.append(dict(pairs))
+            print pairs
 
         # special case: if not enough points, probably isn't worth plotting
         if len(xs) < 3:
+            print xs
             continue
         postfix = '_'.join(['='.join(map(str,pair)) for pair in zip(cols, params)])
         fname = "%s_table_%s_run%d_where_%s" % (ylabel, table, run, postfix)
 
-        ymax = max([max(line.values()) for line in lines]) * 1.2
+        try:
+            ymax = max([max(line.values()) for line in lines if len(line)]) * 1.2
+        except:
+            print lines
+            raise
 
         # draw the graph
         fig = plt.figure()
@@ -108,24 +118,35 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
 from bench_util import *
 conn = get_db()
 
-ptrrun = 68#34 # 16
-boxrun = 33 #17
-table = 'ptr_plot_abs'
-where = "fanin = 100"#"density = 1.0"
+#=== attributes ===
+# x axis
+# y axis
+# lines
+# files
+# where clause (constraints)
+# table
 
-for xaxis in ['density']:#['noutput', 'fanin', 'fanout', 'density', 'nqs']:
-    #plot(conn, xaxis, 'overhead-(sercost+writecost)', ptrrun,  table=table, where=where)    
-    plot(conn, xaxis, 'overhead', ptrrun,  table=table, where=where)
-    plot(conn, xaxis, 'disk', ptrrun,  table=table, where=where)
-    plot(conn, xaxis, 'fcost', ptrrun,  table=table, where=where)
-    plot(conn, xaxis, 'bcost', ptrrun,  table=table, where=where)
+ptrrun = 8#13
+boxrun = 16 #17
+table = 'model_plot_abs'
+table = 'box_model_plot_abs'
+where = "1=1"#"fanin = 100"#"density = 1.0"
 
-# where = "strat in ('s:Box', 's:PtrSet', 's:Bulk')  and opcost = 10"
-# for xaxis in [ 'nqs']:
-#     plot(conn, xaxis, 'overhead', boxrun,  table='box_plot_abs', where=where)
-#     plot(conn, xaxis, 'disk', boxrun,  table='box_plot_abs', where=where)
-#     plot(conn, xaxis, 'fcost', boxrun,  table='box_plot_abs', where=where)
-#     plot(conn, xaxis, 'bcost', boxrun,  table='box_plot_abs', where=where)
+# for xaxis in ['fanin', 'fanout', 'density', 'nqs']:
+#     #plot(conn, xaxis, 'overhead-(sercost+writecost)', ptrrun,  table=table, where=where)    
+#     plot(conn, xaxis, 'overhead', ptrrun,  table=table, where=where)
+#     plot(conn, xaxis, 'disk', ptrrun,  table=table, where=where)
+#     plot(conn, xaxis, 'fcost', ptrrun,  table=table, where=where)
+#     plot(conn, xaxis, 'bcost', ptrrun,  table=table, where=where)
+# conn.close()
+# exit()
+
+where = "1=1"#opcost = 6"
+for xaxis in [ 'density']:#, 'nqs', 'writecost']:
+    plot(conn, xaxis, 'overhead', boxrun,  table=table, where=where)
+    plot(conn, xaxis, 'disk', boxrun,  table=table, where=where)
+    plot(conn, xaxis, 'fcost', boxrun,  table=table, where=where)
+    plot(conn, xaxis, 'bcost', boxrun,  table=table, where=where)
 
 
 conn.close()

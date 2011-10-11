@@ -3,106 +3,259 @@ from runtime import *
 
 # STRAT_DIFF is hard to predict so I'm punting on it
 
+
+
+def get_parse_costs(desc):
+    coord_one = 8.51511955261e-6
+    coord_many = 1.36479878426e-6
+    box = 4.33921813965e-6
+    key = 7.15684890747e-6
+    none = 2.87890434265e-6
+    if desc.spec.outcoords == Spec.COORD_ONE:
+        outcost = coord_one
+    elif desc.spec.outcoords == Spec.COORD_MANY:
+        outcost = coord_many
+    elif desc.spec.outcoords == Spec.BOX:
+        outcost = box
+    elif desc.spec.outcoords == Spec.KEY:
+        outcost = coord_many
+    else:
+        outcost = none
+
+    if desc.spec.payload == Spec.COORD_ONE:
+        incost = coord_one
+    elif desc.spec.payload == Spec.COORD_MANY:
+        incost = coord_many
+    elif desc.spec.payload == Spec.BOX:
+        incost = box
+    elif desc.spec.payload == Spec.KEY:
+        incost = coord_many
+    else:
+        incost = none
+    return outcost, incost
+
+
+
 def disk_model(strat, fanin, fanout, density, noutput, grid=10):
-    if strat in [STRAT_Q, STRAT_F, STRAT_NOOP]:
+    return disk_model_desc(strat.buckets[0].descs[0], fanin, fanout, density, noutput, grid=10)
+    
+def disk_model_desc(desc, fanin, fanout, density, noutput, grid=10):
+    #desc.mode, desc.spec, desc.backward
+    if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
         disk = 0
-    elif strat == STRAT_DIFF:
-        disk = 100
-    elif strat  == STRAT_PSET:
-        disk = (7791 * fanin) 
-    elif strat ==  STRAT_BOX:
-        disk = 45056
-    elif strat == STRAT_BULK:
-        disk = 140 + (((2 * 6 * 4) + (4 + fanin * 8) + (4 + fanout * 8)))  
-        disk *= math.ceil(1000.0 / fanout)
-        #disk = 1000 * (8 + fanin * 4) / fanout 
-    return disk / 1000.0 * noutput
+    elif desc.mode == Mode.PT_MAPFUNC:
+        disk = noutput * 8 + 4
+    if desc.mode == Mode.PTR:
 
-def write_model(strat, fanin, fanout, density, noutput, grid=10):
-    disk = disk_model(strat, fanin, fanout, density, noutput, grid=grid) / 1048576.0
-    if strat in [STRAT_Q, STRAT_F]:
-        return 0
-    if strat == STRAT_DIFF:
-        return write_model(STRAT_PSET, fanin, fanout, density, noutput) / 100.0
-    elif strat == STRAT_NOOP:
-        return 0
-        f = float('3.73325355e-8') * fanin + float('3.6e-05')
-        total = f * (noutput / fanout)
-    elif strat  == STRAT_PSET:
-        write = disk 
-        ser = disk * (4 + 0.28 * fanin)
-        cpu = ( 0.001364 + (-0.0000060517 * fanout)) * fanin + 0.1529
-        total = write + ser + cpu + write_model(STRAT_NOOP, fanin, fanout, density, noutput)
+        #if desc.spec.outcoords == Spec.COORD_ONE:
+        #ncalls = noutput
+        #else:
+        ncalls = int(math.ceil(noutput / float(fanout)))
 
-        total = 0.00101 * fanin + 0.219
-        total += write_model(STRAT_NOOP, fanin, fanout, density, noutput)
+        if not desc.backward:
+            fanin, fanout = fanout, fanin
 
-    elif strat ==  STRAT_BOX:
-        return write_model(STRAT_PSET, fanin, fanout, density, noutput)
-        write = disk * 0.85
-        ser = disk * 4.2236
-        cpu = 0.2 + 0.0012 * fanin
-        total = write + ser + cpu + 0
-    elif strat == STRAT_BULK:
-        a,b,c = 0.00012113359323305934, 0.005033453279969142, 1.0275079057658358
-        slope = a + b / (fanout ** c)
-        a,b,c = 0.2421166069903642, 0.14210971262225633, 0.43770876881419485
-        fixed = a + b / (fanout ** c)
-        total = fixed + slope * fanin
-        
-        # a,b,c = 0.0011887, -0.004104377, 0.5156220
-        # total = a * fanin + b * fanout + c
-        #total += write_model(STRAT_NOOP, fanin, fanout, density, noutput)
-    return total / 1000.0 * noutput + float('1.1e-6') * noutput
 
-def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel,
+
+        outsize = 0
+        mult = 1
+        if desc.spec.outcoords == Spec.COORD_ONE:
+            outsize = 4
+            mult *= fanout
+        if desc.spec.outcoords == Spec.COORD_MANY:
+            outsize = fanout * 4 + 4
+        if desc.spec.outcoords == Spec.KEY:
+            outsize = fanout * 4 + 4 + 20
+        if desc.spec.outcoords == Spec.BOX:
+            outsize = 16
+
+
+        insize = 0
+        if desc.spec.payload == Spec.COORD_ONE:
+            insize = 4
+            mult *= fanin
+        if desc.spec.payload == Spec.COORD_MANY:
+            insize = fanin * 4 + 4
+        if desc.spec.payload == Spec.KEY:
+            insize = fanin * 4 + 4 + 20
+        if desc.spec.payload == Spec.BOX:
+            insize = 16
+
+
+        disk = (outsize + insize) * mult * ncalls
+    return disk
+
+def write_model(strat, fanin, fanout, density, noutput):
+    return write_model_desc(strat.buckets[0].descs[0], fanin, fanout, density, noutput)
+
+def write_model_desc(desc, fanin, fanout, density, noutput, grid=10):
+    if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
+        return 0.001
+    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 13.0
+    
+    # cost to serialize per cell
+    coord_one = 7.102e-6
+    box = 3.17e-6
+    other = 6.92e-7
+
+    if desc.mode == Mode.PT_MAPFUNC:
+        return diskcost+ noutput * other 
+    
+
+    if desc.spec.outcoords == Spec.COORD_ONE:
+        outcost = coord_one
+    elif desc.spec.outcoords == Spec.BOX:
+        outcost = box
+    else:
+        outcost = other
+
+    if desc.spec.payload == Spec.COORD_ONE:
+        incost = coord_one
+    elif desc.spec.payload == Spec.BOX:
+        incost = box
+    else:
+        incost = other
+    
+
+    ncalls = int(math.ceil(noutput / float(fanout)))
+
+    if not desc.backward:
+        fanin, fanout = fanout, fanin
+
+    mult = 1
+    if not desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
+        # overhead of collisions!  How many collisions are there in inputs?
+        mult = max(1, fanout / (160 / 10.0))
+    
+    cost_per_call = fanout * outcost + fanin * incost * mult
+
+    return diskcost + ( ncalls * cost_per_call)
+
+def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, grid=10):
+    return forward_model_desc(strat.buckets[0].descs[0], fanin, fanout, density, noutput,
+                              runtime, nqs, sel, inputarea=inputarea)
+
+def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
                   inputarea=None, grid=10):
 
-    if strat in [STRAT_F, STRAT_NOOP]:
-        return 0
-    if strat == STRAT_Q:
-        return runtime
-    if strat == STRAT_DIFF:
-        return forward_model(STRAT_PSET, fanin, fanout, density, noutput,
-                              runtime, nqs, sel, inputarea=inputarea) / 100.0
-    elif strat == STRAT_PSET:
-        fixed = float('6.4664e-05') * fanout + 0.031577765
-        total = fixed + 0.000162287269319807 * fanin        
-    elif strat == STRAT_BULK:
-        a,b,c = 0.00174984669, 0.03049307, 1.3506390
-        fixed = a + b / fanout ** c
-        a,b,c = float('1.90661e-06'), float('6.73957315e-05'), 0.722754
-        slope = a + b / fanout ** c
-        total = fixed + slope * fanin        
-    elif strat == STRAT_BOX:
-        a,b,c = 17.02816440, 1.45883027, 1.30902734
-        bbox = ((math.ceil(fanin**0.5) ** 2) / density)
-        bperq = (1 + a * (bbox / (1000*1000)))
-        mincost = b * bbox / (1000*1000) * runtime
-        total = bperq * nqs * mincost + c
+    if desc.mode == Mode.QUERY:
+        return runtime 
+    outcost, incost = get_parse_costs(desc)
+    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
+    ncalls = int(math.ceil(noutput / float(fanout)))
+    #if not desc.backward:
+    #    fanin, fanout = fanout, fanin
 
-    return total / (1000*1000) * noutput * nqs
+    if desc.mode == Mode.PT_MAPFUNC:
+        return diskcost + nqs * sel * 6e-7
 
+    # == if hash join ==
+    if not desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
+        coord_one = 7.102e-6
+        parsecost = nqs * coord_one
 
-def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel,
+        extractcost = fanout * outcost
+        extractcost *= nqs * sel
+
+        qcost = parsecost + extractcost
+        return qcost
+    elif not desc.backward:
+        # if optimized for forward queries
+        parsecost = 0
+
+        # X --> Y
+        # parse all of X
+        # parse some of Y
+
+        parsecost = fanin * (noutput / fanout) * incost
+        extractcost = fanout * outcost * sel
+        qcost = parsecost + extractcost
+        qcost *= nqs
+        
+    else:
+        # if optimized for backward queries
+        # iterate through everything, read the inputs
+
+        # X --> Y
+        # X * Y --> Y
+        # parse X * Y
+        # parse some of Y
+
+        nptrs = desc.spec.outcoords == Spec.COORD_ONE and noutput or noutput / fanout
+        parsecost = fanin * incost * nqs * nptrs
+
+        if desc.spec.payload == Spec.BOX:
+            extractcost = box_model(density, fanin, inputarea, runtime, nptrs)
+            # perc = min((fanin / density), inputarea) / float(inputarea)
+            # nreexec = (noutput / fanout) * perc * nqs
+            # extractcost = runtime * perc * nreexec
+        else:
+            extractcost = fanout * outcost * nqs * sel
+
+        qcost = (parsecost + extractcost) 
+    
+    return diskcost + qcost
+    
+def box_model(density, fanin, inputarea, runtime, nptrs):
+    a,b,c = 0.08147001934235978, 0.00852998065764022, 1.4085629809324707
+    baseline = a + b / (density ** c)
+    a,b,c = -0.12499999999999964, 1.1249999999999998, 0.5642714304385626
+    nintersect = a + b / (density ** c)
+    nintersect = min(nptrs, nintersect)
+
+    cost = baseline + nintersect * (min(fanin / density, inputarea) / inputarea) * runtime
+    return cost
+
+def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, grid=10):
+    return backward_model_desc(strat.buckets[0].descs[0], fanin, fanout, density, noutput,
+                              runtime, nqs, sel, inputarea=inputarea)
+
+def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
                    inputarea=None, grid=10):
-    if strat in [STRAT_F, STRAT_NOOP]:
-        return 0
-    if strat == STRAT_Q:
-        return runtime
-    if strat == STRAT_DIFF:
-        return backward_model(STRAT_PSET, fanin, fanout, density, noutput,
-                               runtime, nqs, sel, inputarea=inputarea) / 100.0
-    elif strat == STRAT_PSET:
-        total = 0.000433349 + float('2.27715287889753e-05') * fanin
-    elif strat == STRAT_BULK:
-        a,b,c = 0.000712780, 0.0327779, 1.042021
-        fixed = a + b / fanout ** c
-        total = fixed + float('1.72568928627741e-05') * fanin
-    elif strat == STRAT_BOX:
-        a,b = 0.8101029336838939, 0.5230569678037271
-        f = a / (density ** b)
-        mincost = (int(math.ceil((float(fanin)**0.5)))**2 / density) * runtime
-        total = f * mincost
 
-    return total / (1000*1000) * noutput * nqs
+    if desc.mode == Mode.QUERY:
+        return runtime
+
+    outcost, incost = get_parse_costs(desc)
+    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
+    ncalls = int(math.ceil(noutput / float(fanout)))
+
+    if desc.mode == Mode.PT_MAPFUNC:
+        return diskcost + nqs * sel * 6e-7
+
+    # == if hash join ==
+    if desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
+        coord_one = 7.102e-6
+        parsecost = nqs * coord_one
+
+        if desc.spec.payload == Spec.BOX:
+            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        else:
+            extractcost = fanin * incost
+        extractcost *= nqs * sel
+
+        qcost = parsecost + extractcost
+        return qcost
+
+    elif desc.backward:
+        parsecost = fanout * (noutput / fanout) * outcost
+
+        if desc.spec.payload == Spec.BOX:
+            a,b,c = 0.10013271527592049, 0.00022428472407952143, 1.5845707477154047
+            baseline = a + b / (density ** c)
+            perc = min((fanin / density), inputarea) / float(inputarea)
+            extractcost = (baseline + runtime * perc) * sel 
+        else:
+            extractcost = fanin * incost * sel
+
+        qcost = parsecost + extractcost
+        qcost *= nqs
+        
+    else:
+        nptrs = desc.spec.outcoords == Spec.COORD_ONE and noutput or noutput / fanout
+        parsecost = fanin * incost * nqs * nptrs
+        extractcost = fanout * outcost * nqs * sel
+        qcost = parsecost + extractcost
+    
+    return diskcost + qcost
+

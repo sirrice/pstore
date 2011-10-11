@@ -33,8 +33,8 @@ class Mode(object):
 class Spec(object):
     COORD_ONE  = 0
     COORD_MANY = 1
-    OUTCOORD_ONE  = 2
-    OUTCOORD_MANY = 3
+    #OUTCOORD_ONE  = 2
+    #OUTCOORD_MANY = 3
     BOX        = 4
     KEY        = 5
     PRED       = 6
@@ -44,6 +44,10 @@ class Spec(object):
     def __init__(self, outcoords, payload):
         self.outcoords = outcoords
         self.payload = payload
+
+    @staticmethod
+    def all():
+        return (Spec.COORD_ONE, Spec.COORD_MANY, Spec.BOX, Spec.KEY, Spec.BINARY, Spec.NONE)
 
     @staticmethod
     def is_coord(spec):
@@ -59,6 +63,42 @@ class Desc(object):
         self.mode = mode
         self.spec = spec
         self.backward = backward
+
+
+    def __str__(self):
+        s = ''
+        if self.mode == Mode.FULL_MAPFUNC:
+            s = "MAP"
+        elif self.mode == Mode.PT_MAPFUNC:
+            s = "PTMAP"
+        elif self.mode == Mode.QUERY:
+            s = "Q"
+        elif self.mode == Mode.PTR:
+            x = []
+            if self.spec.payload == Spec.BOX:
+                x.append("BOX")
+            else:
+
+                for foo in (self.spec.outcoords, self.spec.payload):
+                    if foo == Spec.KEY:
+                        x.append('KEY')
+                    elif foo == Spec.COORD_MANY:
+                        x.append("MANY")
+                    elif foo == Spec.COORD_ONE:
+                        x.append("ONE")
+                    elif foo == Spec.BOX:
+                        x.append("BOX")
+                    else:
+                        x.append(str(foo))
+            x.append(self.backward and 'b' or 'f')
+            s = "_".join(x)
+
+        else:                
+            s = "%d_%d_%d_%d" % (self.mode,
+                                 self.spec.outcoords,
+                                 self.spec.payload,
+                                 self.backward)
+        return s
     
 class Bucket(object):
     """
@@ -87,34 +127,7 @@ class Strat(object):
         for buck in self.buckets:
             l = []
             for desc in buck.descs:
-                if desc.mode == Mode.FULL_MAPFUNC:
-                    l.append("MAP")
-                elif desc.mode == Mode.PT_MAPFUNC:
-                    l.append("PTMAP")
-                elif desc.mode == Mode.QUERY:
-                    l.append("Q")
-                elif desc.mode == Mode.PTR:
-                    if desc.spec.payload == Spec.BOX:
-                        l.append("BOX")
-                    else:
-                        x = []
-                        for foo in (desc.spec.outcoords, desc.spec.payload):
-                            if foo == Spec.KEY:
-                                x.append('KEY')
-                            elif foo == Spec.COORD_MANY:
-                                x.append("MANY")
-                            elif foo == Spec.COORD_ONE:
-                                x.append("ONE")
-                            elif foo == Spec.BOX:
-                                x.append("BOX")
-                            else:
-                                x.append(str(foo))
-                        l.append("_".join(x))
-                else:                
-                    l.append("%d_%d_%d_%d" % (desc.mode,
-                                              desc.spec.outcoords,
-                                              desc.spec.payload,
-                                              desc.backward))
+                l.append(str(desc))
             
             ll.append("__".join(l))
         return "___".join(ll)
