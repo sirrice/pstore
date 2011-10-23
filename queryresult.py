@@ -411,7 +411,6 @@ class DedupQuery(Query):
             shape = child.shape
         super(DedupQuery, self).__init__(None, child, -1, shape)
         self.pqres = PQDenseResult(self.shape)
-
         self.load()
 
     def load(self):
@@ -420,7 +419,7 @@ class DedupQuery(Query):
             self.pqres.add(coord)
             nseen += 1
             if nseen >= self.maxcount and  len(self.pqres) >= self.maxcount:
-                print "dedup: found maxcount cells!", self.maxcount, nseen
+                #print "dedup: found maxcount cells!", self.maxcount, nseen
                 break
         self.child.close()
 

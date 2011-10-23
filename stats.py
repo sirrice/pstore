@@ -1,8 +1,11 @@
 from runtime import *
 from datetime import datetime
 from operator import mul
-import numpy
-import sqlite3
+import numpy, sqlite3, logging
+
+slog = logging.getLogger('stats')
+logging.basicConfig()
+slog.setLevel(logging.ERROR)
 
 
 
@@ -85,7 +88,7 @@ class Stats(object):
                 cur.execute(q)            
             self.conn.commit()            
         except Exception, err:
-            print err
+            slog.error( err )
             self.conn.rollback()
         cur.close()
         
@@ -134,7 +137,7 @@ class Stats(object):
             pickle.dump(self.__dict__, f, -1)
             f.close()
         except Exception as e:
-            print "save_stats error", e
+            slog.error( "save_stats error\t%s", e )
             raise e
         
     def load(self, fname):
@@ -143,35 +146,35 @@ class Stats(object):
             self.__dict__.update(pickle.load(f))
             f.close()
         except Exception as e:
-            print "load_stats error", e
+            slog.error( "load_stats error\t%s", e )
             raise e
 
 
-    def add_wrun(self, runid, op, cost, inputs, output, wpstore, rpstore):
-        strat = Strategy.strategy(wpstore)
-        overhead = wpstore.runtime
-        save = wpstore.writecost
-        serialize = wpstore.serializecost
-        nptrs = wpstore.nptrs
-        oclustsize = wpstore.outsize()    # cluster size
-        noutcells = wpstore.nopencalls # number of outcells that have provenance
+    def add_wrun(self, runid, op, cost, inputs, output, pstore):
+        strat = str(pstore.strat)
+        overhead = pstore.stats.get('write', 0)
+        save = pstore.stats.get('write', 0)
+        serialize = pstore.stats.get('_serialize', 0)
+        nptrs = pstore.get_nptrs()
+        oclustsize = pstore.get_oclustsize()    # cluster size
+        noutcells = pstore.noutcells # number of outcells that have provenance
         outputsize = reduce(mul,output)       # size of the output array
-        disk = rpstore.disk_size()
-        fanins = wpstore.fanins()
-        areas = wpstore.areas()
-        densities = wpstore.densities()
+        disk = pstore.disk()
+        fanins = pstore.get_fanins()
+        areas = pstore.get_inareas()
+        densities = pstore.get_densities()
 
         cur = self.conn.cursor()
 
         cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?)",
-                    (self.eid, runid, op.oid, str(op).strip(), str(strat).strip(),
+                    (self.eid, runid, op.oid, str(op).strip(), strat,
                      nptrs, oclustsize, noutcells, outputsize, cost))
         wid = cur.lastrowid
         cur.execute("insert into pstore_overhead values (?,?,?,?,?)",
                     (wid, save, overhead, serialize, disk))
 
 
-        print "addwrun", op, fanins, areas, densities, inputs, noutcells
+        slog.info( "addwrun", op, fanins, areas, densities, inputs, noutcells )
         for arridx, (fanin, outarea, density, input) in enumerate(zip(fanins,
                                                                    areas,
                                                                    densities,
@@ -235,7 +238,7 @@ class Stats(object):
                              width = ? and height = ? and finished = 1 and runtype = 'stats'""",
                           (runmode, shape[0], shape[1]))
         eids = [int(row[0]) for row in res]
-        print runmode, shape, eids
+        slog.info ('get_noops\t%s\t%s\t%s', runmode, shape, eids )
         cur.close()
         return eids
         
@@ -349,12 +352,10 @@ class Stats(object):
 
     def get_disk(self, op, s, run_id=None):
         ret = self.get_xxx(op, s, 6, run_id=run_id, default=50.0) / 1048576.0
-        #print "disk\t%s\t%s\t%s\t%f" % (op, s, run_id, ret)
         return ret
 
     def get_overhead(self, op, s, run_id=None):
         ret = self.get_xxx(op, s, 5, run_id=run_id, default=0.00005)
-        #print "overhead\t%s\t%s\t%s\t%f" % (op, s, run_id, ret)
         return ret
 
 

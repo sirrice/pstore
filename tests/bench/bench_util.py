@@ -111,7 +111,7 @@ class BenchOp(Op):
     def bmap(self, coord, run_id, arridx):
         return [(0,0)]
 
-    def supported_model(self):
+    def supported_modes(self):
         return [Mode.PT_MAPFUNC, Mode.FULL_MAPFUNC, Mode.PTR]
         
     

@@ -87,12 +87,10 @@ class ModelPredictor(object):
             bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
             qcost = fcost * fprob + bcost * (1.0 - fprob)
 
-            if strat == STRAT_F:
-                if not op.implements_mapfunctions():
-                    qcost = 10000
-            elif strat == STRAT_DIFF:
-                if not op.implements_dmapfunctions():
-                    qcost = 10000
+            modes = strat.modes()
+            for mode in modes:
+                if mode not in op.supported_modes():
+                    qcost = 10000.0
 
             opcosts.append(weight*opcost)
             provs.append(weight*prov)

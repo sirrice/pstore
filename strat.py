@@ -7,6 +7,8 @@ class Mode(object):
     PT_MAPFUNC = 1 << 3
     PT_MAPFUNC_BOX = 1 << 4
     PTR = 1 << 5
+    NOOP = 1 << 6
+    STAT = 1 << 7
 
     @staticmethod
     def all():
@@ -15,7 +17,9 @@ class Mode(object):
                 Mode.FULL_MAPFUNC,
                 Mode.PT_MAPFUNC_BOX,
                 Mode.PT_MAPFUNC,
-                Mode.PTR]
+                Mode.PTR,
+                Mode.NOOP,
+                Mode.STAT]
 
     @staticmethod
     def ptype(mode):
@@ -50,12 +54,19 @@ class Spec(object):
         return (Spec.COORD_ONE, Spec.COORD_MANY, Spec.BOX, Spec.KEY, Spec.BINARY, Spec.NONE)
 
     @staticmethod
+    def default():
+        return Spec(Spec.NONE, Spec.NONE)
+
+    @staticmethod
     def is_coord(spec):
         """
         Does the spec define an encoding that can be parsed into a set of
         coordinates?
         """
         return spec in (Spec.COORD_ONE, Spec.COORD_MANY, Spec.KEY)
+
+    def copy(self):
+        return Spec(self.outcoords, self.payload)
 
 
 class Desc(object):
@@ -64,10 +75,14 @@ class Desc(object):
         self.spec = spec
         self.backward = backward
 
+    def copy(self):
+        return Desc(self.mode, self.spec.copy(), self.backward)
 
     def __str__(self):
         s = ''
-        if self.mode == Mode.FULL_MAPFUNC:
+        if self.mode == Mode.NOOP:
+            s = 'NOOP'
+        elif self.mode == Mode.FULL_MAPFUNC:
             s = "MAP"
         elif self.mode == Mode.PT_MAPFUNC:
             s = "PTMAP"
@@ -107,10 +122,13 @@ class Bucket(object):
     def __init__(self, descs):
         self.descs = descs
 
+    def copy(self):
+        return Bucket([desc.copy() for desc in self.descs])
+
 class Strat(object):
     """
     Strat can contain multiple buckets
-    """
+    """    
     def __init__(self, buckets):
         self.buckets = buckets
 
@@ -121,6 +139,29 @@ class Strat(object):
             if mode & compmode:
                 descs.append(Desc(mode, spec, backward))
         return Strat([Bucket(descs)])
+
+    @staticmethod
+    def noop():
+        return Strat.single(Mode.NOOP, Spec.default(), True)
+
+    @staticmethod
+    def query():
+        return Strat.single(Mode.QUERY, Spec.default(), True)
+
+    @staticmethod
+    def full():
+        return Strat.single(Mode.FULL_MAPFUNC, Spec.default(), True)
+
+
+    def modes(self):
+        ret = set()
+        for bucket in self.buckets:
+            for desc in bucket.descs:
+                ret.add(desc.mode)
+        return list(ret)
+
+    def copy(self):
+        return Strat([bucket.copy() for bucket in self.buckets])
 
     def fnamestring(self):
         ll = []
@@ -133,21 +174,8 @@ class Strat(object):
         return "___".join(ll)
 
 
-
-
     def __str__(self):
         return self.fnamestring()
-        buf = StringIO()
-        
-        for buck in self.buckets:
-            buf.write("(")
-            for desc in buck.descs:
-                buf.write("[%d, %d / %d, %d]" % (desc.mode,
-                                                 desc.spec.outcoords,
-                                                 desc.spec.payload,
-                                                 desc.backward))
-            buf.write(")")
-        return buf.getvalue()
 
     def __hash__(self):
         return hash(str(self))

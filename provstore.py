@@ -1,4 +1,5 @@
-import struct, bsddb, math, time
+import struct, math, time
+import bsddb3 as bsddb
 from StringIO import StringIO
 from operator import mul, or_, and_
 
@@ -17,10 +18,10 @@ from util import subarray
 #
 
 def enc(coord, shape):
-    return coord[0] * shape[0] + coord[1]
+    return coord[0] * shape[1] + coord[1]
 
 def dec(val, shape):
-    return (int(math.floor(float(val)/shape[0])), val % shape[0])
+    return (int(math.floor(float(val)/shape[1])), val % shape[1])
 
 def bbox(coords):
     if not len(coords):
@@ -80,7 +81,9 @@ class IPstore(object):
 
     def get_stat(self, attr, default=0):
         return self.stats.get(attr, default)
-        
+
+    def uses_mode(self, mode):
+        return mode in self.strat.modes()
 
     def get_iter(self):
         return ()
@@ -102,6 +105,30 @@ class IPstore(object):
 
     def join(self, left, arridx, backward=True):
         raise RuntimeError
+
+
+    def get_fanins(self):
+        if self.ncalls == 0:
+            return [1] * self.nargs
+        return map(lambda fanin: fanin / self.noutcells, self.fanins)
+    def get_inareas(self):
+        if self.ncalls == 0:
+            return [1] * self.nargs
+        return map(lambda inarea: inarea / self.ncalls, self.inareas)
+    def get_oclustsize(self):
+        if self.ncalls == 0: return 1
+        return self.noutcells / self.ncalls
+    def get_densities(self):
+        if self.ncalls == 0:
+            return [1] * self.nargs
+        return [pair[1] > 0 and float(pair[0]) / pair[1] or 1.0
+                for pair in zip(self.get_fanins(), self.get_inareas())]
+    def get_nptrs(self):
+        return sum([self.noutcells * fanin for fanin in self.get_fanins()])
+        
+
+        
+    
 
     def set_fanins(self, fanins):
         self.fanins = fanins
@@ -127,13 +154,56 @@ class IPstore(object):
         pass
 
 
+class NoopPStore(IPstore):
+    def uses_mode(self, mode):
+        return False
+    
+    def write(self, outcoords, *incoords_arr):
+        pass
 
+class StatPStore(IPstore):
+    def __init__(self, op, run_id, fname, strat):
+        super(StatPStore, self).__init__(op, run_id, fname, strat)
+        self.nsampled = 0
+
+    def uses_mode(self, mode):
+        return mode == Mode.PTR
+    
+    @instrument
+    def update_stats(self, outcoords, *incoords_arr):
+        outbox = bbox(outcoords)
+        inboxes = map(bbox, incoords_arr)
+
+        diff = lambda box: map(lambda p: p[1]-p[0]+1, zip(box[0], box[1]))
+        outarea = reduce(mul, diff(outbox))
+        inareas = map(lambda box: reduce(mul, diff(box)), inboxes)
+
+        fanins = map(len, incoords_arr)
+        noutcells = len(outcoords)
+
+        if inareas[0] < fanins[0]:
+            raise "we have a problem", inareas, fanins
+
+        self.outarea += outarea
+        self.inareas = map(sum, zip(self.inareas, inareas))
+        self.fanins = map(sum, zip(self.fanins, map(lambda x: noutcells * x, fanins)))
+        self.noutcells += noutcells
+        self.ncalls += 1
+
+
+    def write(self, outcoords, *incoords_arr):
+        self.update_stats(outcoords, *incoords_arr)
+        self.nsampled += 1
+    
 
 class PStore1(IPstore):
 
     def __init__(self, op, run_id, fname, strat):
         super(PStore1, self).__init__(op, run_id, fname, strat)
         self.spec = strat.spec
+
+    def uses_mode(self, obj):
+        return obj == Mode.FULL_MAPFUNC
 
     def extract_outcells(self, obj):
         return (obj[0],)
@@ -198,6 +268,23 @@ class DiskStore(IPstore):
             return self._parse(StringIO(obj[0]), self.spec.outcoords)
         raise RuntimeError
 
+    def extract_allincells_enc(self, obj):
+        buf = StringIO(obj[1])
+        parsed = []
+        for idx in xrange(self.nargs):
+            parsed.append(self._parse(buf, self.spec.payload))
+
+        if Spec.KEY == self.spec.payload:
+            ret = []
+            for ser_key in parsed:
+                encs = self._parse(StringIO(self.bdb[ser_key]), Spec.COORD_MANY)
+                ret.append(encs)
+            return ret
+        elif Spec.is_coord(self.spec.payload):
+            return parsed
+        raise RuntimeError
+
+
     def extract_incells_enc(self, obj, arridx):
         """
         Read incells from an obj object
@@ -206,7 +293,6 @@ class DiskStore(IPstore):
         buf = StringIO(obj[1])
         for idx in xrange(arridx):
             self._parse(buf, self.spec.payload)
-        
         val = self._parse(buf, self.spec.payload)
 
         if Spec.KEY == self.spec.payload:
@@ -257,7 +343,11 @@ class DiskStore(IPstore):
         elif mode == Spec.COORD_MANY:
             coords = data
             n = len(coords)
-            buf.write(struct.pack("%dI" % (1+n), n, *coords))
+            s = struct.pack("I%dI" % n, n, *coords)
+            buf.write(s)
+            if "Cluster" in str(self.op) and len(s) == 53:
+                print 'serialize', n, n * 4 + 4, len(s)
+            
         elif mode == Spec.BOX:
             box = data
             buf.write(struct.pack("4I", box[0][0], box[0][1], box[1][0], box[1][1]))
@@ -267,8 +357,8 @@ class DiskStore(IPstore):
             ser_coords = ser_coords.getvalue()
             ser_key = 'key:%s' % str(hash(ser_coords))     # poor man's key gen
             self.bdb[ser_key] = ser_coords
-
-            buf.write(struct.pack("I%ds" % (1 + len(ser_key)), len(ser_key), ser_key))
+            s = struct.pack("I%ds" % (len(ser_key)), len(ser_key), ser_key)
+            buf.write(s)
         elif mode == Spec.BINARY:
             buf.write(struct.pack("I", len(data)))
             buf.write(data)
@@ -309,14 +399,16 @@ class DiskStore(IPstore):
             self.close()
             return
 
+        # pred
+        # matches
+        # extract
         if backward:
             if Spec.BOX == self.spec.outcoords:
-                def pred(coord, obj):
-                    box = self._parse(StringIO(obj[0]), Spec.BOX)
-                    return in_box(coord, box)
+                pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
+                matches = in_box
             else:
-                def pred(coord, obj):
-                    return tuple(coord) in self.extract_outcells(obj)
+                pred = self.extract_outcells
+                matches = lambda coord, outcoords: tuple(coord) in outcoords
             extract = lambda obj: self.extract_incells(obj, arridx)
         else:
             if Spec.BOX == self.spec.payload:
@@ -324,14 +416,17 @@ class DiskStore(IPstore):
                     buf = StringIO(obj[1])
                     buf.seek(4*4*arridx)
                     box = self._parse(buf, Spec.BOX)
-                    return in_box(coord, box)
+                    return box
+                matches = in_box
             else:
-                pred = lambda coord, obj: tuple(coord) in self.extract_incells(obj, arridx)
+                pred = lambda obj: self.extract_incells(obj, arridx)
+                matches = lambda coord, coords: tuple(coord) in coords
             extract = lambda obj: self.extract_outcells(obj)
 
         for r in self.get_iter():
+            coords = pred(r)
             for l in left:
-                if pred(l,r):
+                if matches(l,coords):
                     for coord in extract(r):
                         yield coord
                     break
@@ -348,7 +443,6 @@ class DiskStore(IPstore):
             if payload:
                 for coord in self.extract_incells((key, payload), arridx):
                     yield coord
-
 
 
     def open(self, new=False):
@@ -373,6 +467,9 @@ class PStore2(DiskStore):
     def __init__(self, op, run_id, fname, strat):
         super(PStore2, self).__init__(op, run_id, fname, strat)
         self.spec.payload = Spec.BINARY # ignore payload spec
+
+    def uses_mode(self, mode):
+        return mode == Mode.PT_MAPFUNC
 
     @instrument
     def update_stats(self, outcoords, payload):
@@ -428,6 +525,9 @@ class PStore3(DiskStore):
     def __init__(self, op, run_id, f, strat):
         super(PStore3, self).__init__(op, run_id, f, strat)
 
+    def uses_mode(self, mode):
+        return mode == Mode.PT_MAPFUNC
+
     @instrument
     def update_stats(self, outcoords, *incoords_arr):
         outbox = bbox(outcoords)
@@ -461,8 +561,13 @@ class PStore3(DiskStore):
                 self._serialize(encs, val, self.spec.payload)
         val = val.getvalue()
 
+
         if Spec.COORD_ONE == self.spec.outcoords:
-            enc_outcoords = map(self.enc_out, outcoords)
+            try:
+                enc_outcoords = map(self.enc_out, outcoords)
+            except:
+                print outcoords
+                raise
             key = StringIO()
             for enc in enc_outcoords:
                 key.seek(0)
@@ -475,10 +580,12 @@ class PStore3(DiskStore):
                     if Spec.BOX == self.spec.payload:
                         raise RuntimeError, "Don't support appending to existing provenance for BOX"
 
-                    buf = StringIO(self.bdb[keystr])
-                    old_encs = []
-                    for idx in xrange(len(incoords_arr)):
-                        old_encs.append(self._parse(buf, self.spec.payload))
+                    old_encs = self.extract_allincells_enc((None, self.bdb[keystr]))
+
+                    # buf = StringIO(self.bdb[keystr])
+                    # old_encs = []
+                    # for idx in xrange(len(incoords_arr)):
+                    #     old_encs.append(self._parse(buf, self.spec.payload))
 
                     newval = StringIO()
                     for incoords, old_enc in zip(incoords_arr, old_encs):
@@ -594,7 +701,6 @@ class IBox(object):
                     for coord in extract(r, left, inputs):
                         yield coord
                     break
-        print "nfound", nfound
         self.close()
 
 
@@ -614,15 +720,25 @@ class PStore3Box(IBox,PStore3):
     def __init__(self, *args, **kwargs):
         super(PStore3Box, self).__init__(*args, **kwargs)
 
+    def uses_mode(self, mode):
+        return mode in ( Mode.BOX, Mode.PTR )
+
+
+
 
 class PStore2Box(IBox, PStore2):
     def __init__(self, *args, **kwargs):
         super(PStore2Box, self).__init__(*args, **kwargs)
 
+    def uses_mode(self, mode):
+        return mode == Mode.PT_MAPFUNC_BOX
 
 class PStoreQuery(IBox,PStore1):
     def __init__(self, *args, **kwargs):
         super(PStoreQuery, self).__init__(*args)
+
+    def uses_mode(self, mode):
+        return mode == Mode.QUERY
 
     @instrument
     def write(self, outcoords, *incoords_arr):
@@ -649,6 +765,12 @@ def create_ftype(ptype):
                 pstore.outshape = self.inshapes[arridx]
                 pstore.nargs = 1
                 self.pstores.append(pstore)
+
+        def uses_mode(self, mode):
+            for pstore in self.pstores:
+                if pstore.uses_mode(mode):
+                    return True
+            return False
 
         def clear_stats(self):
             self.stats = {}
@@ -750,6 +872,9 @@ class MultiPStore(IPstore):
         self.bpstore = bpstore
         self.fpstore = fpstore
 
+    def uses_mode(self, mode):
+        return self.bpstore.uses_mode(mode) or self.fpstore.uses_mode(mode)
+
     def clear_stats(self):
         self.stats = {}
         self.bpstore.clear_stats()
@@ -787,6 +912,9 @@ class FReexec(IPstore):
         self.spec = self.strat.spec
         self.stats = {}
 
+    def uses_mode(self, mode):
+        return mode == Mode.PTR
+
     @instrument
     def write(self, outcoords, *incoords_arr):
         if len(self.incoords.intersection(incoords_arr[self.arridx])) > 0:
@@ -803,9 +931,11 @@ class BReexec(IPstore):
         self.spec = self.strat.spec
         self.stats = {}
         
+    def uses_mode(self, mode):
+        return mode == Mode.PTR
+
     @instrument
     def write(self, outcoords, *incoords_arr):
-
         if len(self.outcoords.intersection(outcoords)) > 0:
             for incoord in incoords_arr[self.arridx]:
                 self.pqres.add(incoord)
@@ -832,6 +962,11 @@ class CompositePStore(IPstore):
             elif isinstance(pstore, PStore3):
                 self.pstore3 = pstore
 
+    def uses_mode(self, mode):
+        for pstore in self.pstores:
+            if pstore.uses_mode(mode):
+                return True
+        return False
 
     def clear_stats(self):
         for pstore in pstores:

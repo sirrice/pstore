@@ -1,7 +1,10 @@
+import os, logging, numpy
 from util import print_matrix
-import os
 from runtime import *
-import numpy
+
+nlog = logging.getLogger('nlp')
+logging.basicConfig()
+nlog.setLevel(logging.ERROR)
 
 
 def run_nlp(stats, w, mp, maxdisk, maxoverhead):
@@ -11,23 +14,17 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     ops = w.get_optimizable_ops()
     matstrats = w.get_matstrats()
     pairs = [(op, s) for op in ops for s in matstrats] 
-    triples = [(r, op, s) for r in xrange(1,w._runid) for op in ops for s in matstrats]
 
-    x = [STRAT_Q == s and 1 or 0 for (r,op,s) in triples]
-    x.extend([0] * len(pairs))
+    x = [0] * len(pairs)
 
-    F = [mp.get_pqcost(op, s) for (r, op, s) in triples]
-    F.extend([mp.get_pqcost(op,s) for op,s in pairs])
-    P = [1.0 for t in triples]
-    P.extend([1.0 for p in pairs])
+    F = [mp.get_pqcost(op,s) for op,s in pairs]
+    P = [1.0 for p in pairs]
 
     avg_runtime = numpy.mean(filter(lambda x: x > 0, [mp.get_opcost(op, s) for op,s in pairs]))
     maxoverhead *= avg_runtime
 
-    A1 = [mp.get_disk(op, s) for (r,op,s) in triples]
-    A1.extend([mp.get_disk(op,s) for (op,s) in pairs])
-    A2 = [0.0 for t in triples]
-    A2.extend([mp.get_provcost(op, s) for (op,s) in pairs])
+    A1 = [mp.get_disk(op,s) for (op,s) in pairs]
+    A2 = [mp.get_provcost(op, s) for (op,s) in pairs]
     A = [A1, A2]
     B = [[maxdisk, maxoverhead]]
 
@@ -35,7 +32,7 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
 
     Aeq = []
     for i in xrange(len(ops)):
-        row = [0 for t in triples]
+        row = []
         for col in xrange(len(pairs)):
             if len(matstrats) * i <= col and col < len(matstrats) * (i+1):
                 row.append(1)
@@ -44,85 +41,25 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
         Aeq.append(row)
     Beq = [[1] * len(ops)]
 
-    print "Max constraints Disk(%f)\tOverhead(%f)" % (maxdisk, maxoverhead)
+    nlog.debug( "Max constraints Disk(%f)\tOverhead(%f)", maxdisk, maxoverhead )
     
-    print "%s     \t" * 7 % ("operator      ","strategy","proqcost",
-                             "provsize","overhead","savecost","runtime")
+    nlog.debug( "%s     \t" * 7, "operator      ","strategy","proqcost",
+                "provsize","overhead","savecost","runtime")
     for op, s in pairs:
-        print "%s\t%s\t% 5f\t% 5f\t% 5f" % (op, s,
+        nlog.debug( "%s\t%s\t% 5f\t% 5f\t% 5f", op, s,
                                             mp.get_pqcost(op,s),
                                             mp.get_disk(op,s),
                                             mp.get_provcost(op, s))
-                                                        #stats.get_save(op, s),
-                                                        #stats.get_runtime(op, s))
-
     strategies = nlp_exec(F, ops, matstrats, A, B, Aeq, Beq)
     return strategies
 
-
-
-
-def old_run_nlp(stats, w, maxdisk, maxoverhead):
-    """
-    maxoverhead is percentage of average runtime cost of optimizable operators
-    XXX: worked for long runnnig workflows
-    """
-    ops = w.get_optimizable_ops()
-    matstrats = w.get_matstrats()
-    pairs = [(op, s) for op in ops for s in matstrats] 
-    triples = [(r, op, s) for r in xrange(1,w._runid) for op in ops for s in matstrats]
-
-    x = [Runtime.instance().get_strategy(op, r) == s and 1 or 0 for (r,op,s) in triples]
-    x.extend([0] * len(pairs))
-
-    F = [w.wrapper(op).cost(s, r) for (r, op, s) in triples]
-    F.extend([w.wrapper(op).cost(s) for op,s in pairs])
-    P = [1.0 for t in triples]
-    P.extend([1.0 for p in pairs])
-
-    avg_runtime = numpy.mean(filter(lambda x: x > 0, [stats.get_runtime(op, s) for op,s in pairs]))
-    maxoverhead *= avg_runtime
-
-    A1 = [w.wrapper(op).provsize(s,r) for (r,op,s) in triples]
-    A1.extend([w.wrapper(op).provsize(s) for (op,s) in pairs])
-    A2 = [0.0 for t in triples]
-    A2.extend([w.wrapper(op).provoverhead(s) for (op,s) in pairs])
-    A = [A1, A2]
-    B = [[maxdisk, maxoverhead]]
-
-    Aeq = []
-    for i in xrange(len(ops)):
-        row = [0 for t in triples]
-        for col in xrange(len(pairs)):
-            if len(matstrats) * i <= col and col < len(matstrats) * (i+1):
-                row.append(1)
-            else:
-                row.append(0)
-        Aeq.append(row)
-    Beq = [[1] * len(ops)]
-
-    print "Max constraints Disk(%f)\tOverhead(%f)" % (maxdisk, maxoverhead)
-    
-    print "%s     \t" * 7 % ("operator      ","strategy","proqcost",
-                             "provsize","overhead","savecost","runtime")
-    for op, s in pairs:
-        print "%s\t%s\t% 5f\t% 5f\t% 5f\t% 5f\t% 5f" % (op, s,
-                                                  w.wrapper(op).cost(s),
-                                                  w.wrapper(op).provsize(s),
-                                                  w.wrapper(op).provoverhead(s),
-                                                  stats.get_save(op, s),
-                                                  stats.get_runtime(op, s))
-
-
-    strategies = nlp_exec(F, ops, matstrats, A, B, Aeq, Beq)
-    return strategies
 
 
 def gen_F(ops, matstrats, disk, opcosts, probs):
     # operator/strategy costs
     opcosts = [x*y for x,y in zip(opcosts, probs)]
     for cost, d, (op, mat) in zip(opcosts, disk, [(op,s) for op in ops for s in matstrats]):
-        print "opcosts\t%s\t%s\t%f\t%f" % (str(op).ljust(15), mat, d, cost)
+        nlog.debug( "opcosts\t%s\t%s\t%f\t%f" , str(op).ljust(15), mat, d, cost )
 
     F = [opcost + (d / (1000.0 * max(disk))) for d, opcost in zip(disk, opcosts)]
     return F
@@ -188,10 +125,10 @@ def nlp_exec(F, ops, matstrats, A, B, Aeq, Beq):
 
     # read solution
     assignmentmatrix = parse_nlpresult()
-    print ( "==Assignment Matrix==")
+    nlog.debug ( "==Assignment Matrix==")
     for row in assignmentmatrix:
-        print (str(row))
-    print ('\n')
+        nlog.debug (str(row))
+    nlog.debug ('\n')
 
     strategies = assign_strategies(assignmentmatrix, ops, matstrats)
     return strategies
@@ -219,37 +156,3 @@ def parse_nlpresult(fname='nlpresult.dat'):
             arr[r][c] = float(f.readline())
     f.close()
     return arr
-
-
-def extract_nlp_params(fname='out'):
-    """
-    opname -> strat -> (disk, opcost)
-    """
-    f = file(fname, 'r')
-    ret = {}
-    for l in f:
-        if not l.startswith('opcosts'): continue
-        arr = l.split()[1:]
-        opname, strat, disk, opcost = arr[0], str_to_strat(arr[1]), float(arr[2]), float(arr[3])
-        if opname not in ret:
-            ret[opname] = {}
-        ret[opname][strat] = (disk, opcost)
-    return ret
-
-def str_to_strat(s):
-
-    if s == 's:Func':
-        return STRAT_F
-    elif s == 's:Query':
-        return STRAT_Q
-    elif s == 's:PtrList':
-        return STRAT_PLIST
-    elif s == 's:PtrSet':
-        return STRAT_PSET
-    elif s == 's:PtrGrid':
-        return STRAT_PGRID
-    elif s == 's:Box':
-        return STRAT_BOX
-    elif s == 's:Test':
-        return STRAT_PTEST
-    raise RuntimeError, "can't parse strategy: %s" % s

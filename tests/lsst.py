@@ -52,7 +52,7 @@ class MergeSingleVal(Op):
         #output = numpy.array(map(lambda x: self.f((x,right)), left.flat)).reshape(left.shape)
 
         start = time.time()
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode(Mode.PTR):
             for x in xrange(nrow):
                 for y in xrange(ncol):
                     pstore.write(((x,y),),  ((x,y),), ((0,0),))
@@ -72,7 +72,7 @@ class MergeSingleVal(Op):
         return self.wrapper.get_input_shape(run_id,0)
 
 
-    def supported_model(self):
+    def supported_modes(self):
         return [Mode.FULL_MAPFUNC, Mode.PTR]
 
 
@@ -301,61 +301,6 @@ class Cluster(Op):
 
 
 
-class Subsample(Op):
-    def __init__(self, box):
-        super(Subsample, self).__init__()
-        self.box = box  #box should be a numpy array
-
-    
-    def run(self, inputs, run_id):
-        pstore = self.pstore(run_id)
-
-        arr = inputs[0]
-        if len(arr.shape) != len(self.box.shape):
-            raise Exception
-        output = self.takes(arr, self.box)
-
-        start = time.time()
-        if pstore.strat.mode == Mode.PTR:
-            for x in xrange(self.box[0][0], self.box[0][1]+1):
-                for y in xrange(self.box[1][0], self.box[1][1]+1):
-                    pstore.pwrite(((x,y),), ((x,y),))
-        else:
-            pstore.set_fanins([1])
-            pstore.set_inareas([1])
-            pstore.set_outarea(1)
-            pstore.set_ncalls(reduce(mul, output.shape))
-            pstore.set_noutcells(reduce(mul, output.shape))
-        end = time.time()
-        return output, {'provoverhead' : (end-start)}
-
-    def takes(self, x, I):
-        """
-        takes(x, I): Takes a subgrid from array x.
-        I is a list of list of subindices.
-        """
-        for i in xrange(len(I)):
-            ii = I[i]
-            if ii is not None:
-                x = np.take(x, ii, i)
-        return x
-    
-    def output_shape(self, run_id):
-        return self.wrapper.get_input_shape(run_id,0)
-
-    def supported_model(self):
-        return [Mode.FULL_MAPFUNC, Mode.PTR]
-
-
-    def fmap(self, coord, run_id, arridx):
-        # if coord in box, return coord
-        if reduce(operator.and_, [b[0] <= c and c < b[1] for c, b in zip(coord, self.box)]):
-            return (coord,)
-        return []
-
-    def bmap(self, coord, run_id, arridx):
-        return self.fmap_0(coord, run_id)
-
 
 class CRDetect(Op):
     def run(self, inputs, run_id):
@@ -480,14 +425,14 @@ class CRDetect(Op):
             for (x,y) in np.argwhere(finalsel):
                 pstore.write(((x,y),), '')
 
-        elif pstore.strat.mode == Mode.PTR:
+        if pstore.strat.mode == Mode.PTR:
             # store every single pointer explicitly
             # for comparisons, would never do this in real life
             # storage class 3
             prov1 = [(px,py)
                      for px in xrange(laplkernel.shape[0])
                      for py in xrange(laplkernel.shape[1])]
-            bound = max(max(laplkernel.shape), 7) / 2
+            bound = 3 #max(max(laplkernel.shape), 7) / 2
             for x in xrange(cleanarray.shape[0]):
                 for y in xrange(cleanarray.shape[1]):
                     if finalsel[x][y]:
@@ -495,8 +440,8 @@ class CRDetect(Op):
                         maxs = (min(x+bound+1, cleanarray.shape[0]),
                                 min(y+bound+1, cleanarray.shape[1]))
                         prov0 = [(px,py)
-                                 for px in xrange(mins[0], maxs[0]+1)
-                                 for py in xrange(mins[1], maxs[1]+1)]
+                                 for px in xrange(mins[0], maxs[0])
+                                 for py in xrange(mins[1], maxs[1])]
                         pstore.write(((x,y),), prov0, prov1)
                     else:
                         coords = ((x,y),)
@@ -554,20 +499,21 @@ class CRDetect(Op):
     def output_shape(self, run_id):
         return self.wrapper.get_input_shape(run_id,0)
 
-    def supported_model(self):
+    def supported_modes(self):
         return [Mode.FULL_MAPFUNC | Mode.PT_MAPFUNC, Mode.PTR]
 
     def bmap_obj(self, obj, run_id, arridx):
         coord = obj[0][0]
+        
         if arridx == 0:
             shape = self.wrapper.get_input_shape(run_id, 0)
             x,y = tuple(coord)
             bound = 3
-            box = ((max(0,x-bound),max(0,y-bound)),
-                   (min(x+bound+1, shape[0]), min(y+bound+1, shape[1])))
+            mins = ( max(0,x-bound),max(0,y-bound) )
+            maxs = ( min(x+bound+1, shape[0]), min(y+bound+1, shape[1]))
             return [(px,py)
-                    for px in xrange(box[0][0], box[1][0]+1)
-                    for py in xrange(box[0][1],box[1][1]+1)]
+                    for px in xrange(mins[0], maxs[0])
+                    for py in xrange(mins[1], maxs[1])]
         if arridx == 1:
             shape = self.wrapper.get_input_shape(run_id, 1)
             return [(x,y) for x in xrange(shape[0]) for y in xrange(shape[1])]
@@ -625,7 +571,7 @@ class RemoveCRs(Op):
             for x in xrange(cleanarray.shape[0]):
                 for y in xrange(cleanarray.shape[1]):
                     coords = ((x,y),)
-                    pstore.popen(coords, coords, coords)
+                    pstore.write(coords, coords, coords)
         provoverhead += time.time() - start
 
 
@@ -660,11 +606,11 @@ class RemoveCRs(Op):
             if pstore.strat.mode == (Mode.PTR, Mode.FULL_MAPFUNC | Mode.PT_MAPFUNC):                
                
                 coord = ((x,y),)
-                box = ((x,y), (min(x+6,cleanarray.shape[0]-1), min(y+6,cleanarray.shape[1]-1)))
-                prov0 = [(px,py)
-                         for px in xrange(box[0][0],box[1][0]+1)
-                         for py in xrange(box[1][0],box[1][1]+1)]
+                box = ((x,y), (min(x+6,cleanarray.shape[0]), min(y+6,cleanarray.shape[1])))
                 if pstore.strat.mode == Mode.PTR:
+                    prov0 = [(px,py)
+                             for px in xrange(box[0][0],box[1][0])
+                             for py in xrange(box[1][0],box[1][1])]
                     pstore.write(coord, prov0, coord)
                 else:
                     pstore.write(coord, '')
@@ -682,7 +628,7 @@ class RemoveCRs(Op):
     def output_shape(self, run_id):
         return self.wrapper.get_input_shape(run_id,0)
 
-    def supported_model(self):
+    def supported_modes(self):
         return [Mode.FULL_MAPFUNC | Mode.PT_MAPFUNC, Mode.PTR]
 
     def bmap_obj(self, obj, run_id, arridx):
@@ -690,10 +636,11 @@ class RemoveCRs(Op):
         if arridx == 0:
             shape = self.wrapper.get_input_shape(run_id, 0)
             x,y = tuple(coord)
-            box = ((x,y), (min(x+6,shape[0]-1), min(y+6,shape[1]-1)))
-            return ((px,py)
-                    for px in xrange(box[0][0], box[1][0]+1)
-                    for py in xrange(box[0][1],box[1][1]+1))
+            box = ((x,y), (min(x+6,shape[0]), min(y+6,shape[1])))
+            print box
+            return [(px,py)
+                    for px in xrange(box[0][0], box[1][0])
+                    for py in xrange(box[0][1],box[1][1])]
         return (coord,)
 
 
@@ -702,17 +649,20 @@ class RemoveCRs(Op):
         coord = obj[0][0]
         if arridx == 0:
             x,y = tuple(coord)
-            box = ((x-6,y-6), (x,y))
+            box = ((max(0, x-6),max(0, y-6)), (x,y))
             return ((px,py)
-                    for px in xrange(box[0][0], box[1][0]+1)
-                    for py in xrange(box[0][1],box[1][1]+1))
+                    for px in xrange(box[0][0], box[1][0])
+                    for py in xrange(box[0][1],box[1][1]))
         return (coord,)
 
     def bmap(self, coord, run_id, arridx):
-        return (coord,)
+        shape = self.wrapper.get_input_shape(run_id, arridx)
+        if coord[0] >= 0 and coord[0] < shape[0] and coord[1] >= 0 and coord[1] < shape[1]:
+            return (coord,)
+        return ()
 
     def fmap(self, coord, run_id, arridx):
-        return (coord,)
+        return self.bmap(coord, run_id, arridx)
 
 
 # class Subsample(Op):

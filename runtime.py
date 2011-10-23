@@ -63,6 +63,7 @@ class Runtime(object):
         3) Single vs Composite (strat.mode)
         4) Specific storage implementation
         """
+
         ret = []
         for buckid, bucket in enumerate(strat.buckets):
             pstores = []
@@ -71,7 +72,11 @@ class Runtime(object):
                 id = '%d_%d' % (buckid, mode)
                 newfname = '%s_%s' % (fname, id)
 
-                if mode == Mode.QUERY:
+                if mode == Mode.NOOP:
+                    ptype = NoopPStore
+                elif mode == Mode.STAT:
+                    ptype = StatPStore
+                elif mode == Mode.QUERY:
                     ptype = PStoreQuery
                 elif mode == Mode.FULL_MAPFUNC:
                     ptype = PStore1
@@ -137,7 +142,7 @@ class Runtime(object):
             return self.pstores[(op, run_id)]
 
         fname = self.get_filename(op,run_id)
-        strat = self.get_strategy(op, run_id)
+        strat = self.get_strategy(op, run_id).copy()
         pstore = self.create_pstore(op, run_id, fname, strat)
         if op not in self.old_strats:
             self.old_strats[op] = {}

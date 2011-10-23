@@ -36,7 +36,11 @@ class ArrayStore(object):
         if key not in self.store:
             if not os.path.exists('./%s/%s.npy' % (self.dirname, key)):
                 raise Exception('array not found.  key: %s' % key)
-        return numpy.load("./%s/%s.npy" % (self.dirname, key))
+        ret = numpy.load("./%s/%s.npy" % (self.dirname, key))
+        if len(ret.shape) == 1:
+            ret = ret.reshape((1, ret.shape[0]))
+        return ret
+        
         f = file('./%s/%s.npy' % (self.dirname, key), 'rb')
         typeid, ndims = struct.unpack('II', f.read(struct.calcsize('II')))
         shape = struct.unpack('%dI' % ndims, f.read(struct.calcsize('%dI' % ndims)))

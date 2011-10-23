@@ -53,6 +53,13 @@ class Wrapper(object):
         wlog.info("%s\taddinput\t%d", self.op, idx)
         self.slots[idx] = arrid
 
+    def get_input(self, run_id, arridx):
+        if run_id not in self.inputs:
+            raise Exception("run #%d does not exist" % run_id)
+        if arridx >= len(self.inputs[run_id]):
+            raise Exception("..")
+        return ArrayStore.instance().get(self.inputs[run_id][arridx])
+
     def get_inputs(self, run_id):
         if run_id not in self.inputs:
             raise Exception("run #%d does not exist" % run_id)
@@ -103,13 +110,16 @@ class Wrapper(object):
         self.slots = [None] * self.nargs
 
         wlog.info('%s.run(%d)', self.op, run_id)
-        wpstore = self.op.pstore(run_id)
-        
+        pstore = self.op.pstore(run_id)
+
+        start = time.time()        
         output, stats = self.op.run(newinputs, run_id)
+        runtime = time.time() - start
+
         newinputs = None
 
         # calculate runtime and provenance overheads
-        wpstore.close()
+        pstore.close()
 
         # store outputs
         outputid = ArrayStore.instance().add(output)
@@ -118,45 +128,9 @@ class Wrapper(object):
         self.outputs[run_id] = outputid
 
 
-        #Stats.instance().add_wrun(run_id, self.op, runtime, inputshapes, outputshape,
-        #                           wpstore, rpstore)
+        Stats.instance().add_wrun(run_id, self.op, runtime, inputshapes, outputshape, pstore)
         return outputid
 
-    def provsize(self, s, run_id=None):
-        if s.s in (Strategy.FUNCTION, Strategy.QUERY):
-            return 1.0 / 1048576.0
-        return Stats.instance().get_disk(self.op, s, run_id)
-
-    def provoverhead(self, s, run_id=None):
-        """
-        overhead of capturing provenance during runtime
-        """
-        if s.s in (Strategy.FUNCTION, Strategy.QUERY):
-            return 0.000001
-            return 0.002 # empirical from FUNCTION operators
-        return Stats.instance().get_overhead(self.op, s, run_id)
-        
-        
-
-    def cost(self, strategy, run_id=None):
-        if strategy.s == Strategy.FUNCTION:
-            if not self.op.implements_mapfunctions():
-                return 1000
-            return 0.0
-        
-        stats = Stats.instance()
-        cost =  stats.get_provq_cost(self.op, strategy, run_id)
-        if cost is not None: return cost
-
-        if strategy.s == Strategy.QUERY:
-            avg_runtime = stats.get_provq_cost(self.op, STRAT_PSET)
-            return stats.get_runtime(self.op, strategy) + avg_runtime #self.prov_runtime(strategy)
-        else:
-            avg_runtime = stats.get_provq_cost(self.op, strategy)
-            if avg_runtime: return avg_runtime
-            return diskseek + diskread * self.provsize(strategy, run_id) + 0.00001
-        
-    
 
     def __str__(self):
         return str(self.op)
@@ -202,6 +176,8 @@ class Workflow(object):
         f.close()
         
             
+
+
             
 
     def register(self, op, nargs):
@@ -310,12 +286,14 @@ class Workflow(object):
         for wop in self.ops.values():
             wop.clean_inputs()
 
-    def default_strategy(self):
+    def default_strategy(self, userstrat = None):
         # decide what provenance strategy to use for the nodes
         # rules based : if fmap, then use FuncPStore, else PtrPStore (which one?)
         runtime = Runtime.instance()
         def set_strategy(w):
-            if Mode.FULL_MAPFUNC in w.op.supported_modes():
+            if userstrat != None:
+                strat = userstrat
+            elif Mode.FULL_MAPFUNC in w.op.supported_modes():
                 strat = Strat.single(Mode.FULL_MAPFUNC, Spec(Spec.NONE, Spec.NONE))
             else:
                 strat = Strat.single(Mode.QUERY, Spec(Spec.NONE, Spec.NONE))
@@ -382,6 +360,8 @@ class Workflow(object):
             pstore = Runtime.instance().get_pstore(op, run_id) 
             if pstore is None: raise RuntimeError
             child = pstore.join(child, arridx, backward=False)
+            child = DedupQuery(child, shape)
+            #print op, len(child)
 
         end = time.time()
         return DedupQuery(child, shape)
@@ -401,6 +381,11 @@ class Workflow(object):
             if pstore is None: raise RuntimeError
 
             child = pstore.join(child, arridx, backward=True)
+            try:
+                child = DedupQuery(child, shape)
+            except:
+                print op
+                raise
 
         return DedupQuery(child, shape)
 
@@ -443,30 +428,43 @@ class Workflow(object):
     def get_optimizable_ops(self):
         ops = set()
         def collect(w):
-            if not w.op.implements_mapfunctions():
+            if Mode.FULL_MAPFUNC not in w.op.supported_modes():
                 ops.add(w.op)
         self.visit(collect)
         return list(ops)
 
         
     def get_matstrats(self):
-        return [STRAT_F, STRAT_Q,  STRAT_PSET, STRAT_BOX, STRAT_BULK, STRAT_DIFF]
-        return [STRAT_F, STRAT_Q,  STRAT_PSET, STRAT_PGRID, STRAT_BOX, STRAT_SUPERBOX, STRAT_BULK]
+        strats = [Strat.single(Mode.QUERY, Spec.default()),
+                  Strat.single(Mode.FULL_MAPFUNC, Spec.default())]
 
-        
-    def get_op_costs(self, op, matstrat):
-        total = 0.0
-        nstats = 0
-        for stat in self.indivq_stats.get(op, []):
-            total += op.wrapper.cost(stat, matstrat)
-            nstats += 1
-        if nstats == 0:
-            #wlog.error('opcosts %s\t%s\t%f\t%s\t%s\tdefault', op, matstrat, total , 0, 5.0)
-            return 5.0
-        #wlog.error('opcosts %s\t%s\t%f\t%s\t%s', op, matstrat, total , nstats, total / nstats)
-        if nstats:
-            return total / nstats
-        return 0.0
+        bstrats = [Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True),
+                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.KEY), True),
+                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.MANY), True),
+                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.MANY), True),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.MANY), True),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.MANY), True)]
+
+        fstrats = [Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.MANY), False),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.MANY), False)]
+
+        cstrats = []
+        for bstrat in bstrats:
+            for fstrat in fstrats:
+                bstrat = bstrat.copy()
+                fstrat = fstrat.copy()
+                cstrat = Strat([bstrat.buckets[0], fstrat.buckets[0]])
+                cstrats.append(cstrat)
+
+        strats.extend(bstrats)
+        strats.extend(fstrats)
+        strats.extend(cstrats)                
+        return strats
+
 
     def get_op_prob(self, op, iqs):
         if len(iqs):

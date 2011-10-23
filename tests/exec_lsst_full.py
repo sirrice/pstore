@@ -15,9 +15,6 @@ if __name__ == "__main__":
     else:
         smallshape = (2000,2000)
 
-    if not Strategy.from_str(runtype):
-        print "%s is not a recognized runtype" % runtype
-        exit()
     if os.path.exists(logdir) and not os.path.isdir(logdir):
         print "%s exists and is not a directory"  % logdir
         exit()
@@ -47,8 +44,8 @@ if __name__ == "__main__":
     #hp = hpy()
 
 
-    hdulist1 = pyfits.open('./data/imsim_85408556_R23_S11_C04_E000.fits')
-    hdulist2 = pyfits.open('./data/imsim_85408556_R23_S11_C04_E001.fits')    
+    hdulist1 = pyfits.open('../data/imsim_85408556_R23_S11_C04_E000.fits')
+    hdulist2 = pyfits.open('../data/imsim_85408556_R23_S11_C04_E001.fits')    
     scidata1 = hdulist1[0].data
     scidata2 = hdulist1[0].data
     print hdulist1.info()
@@ -255,14 +252,14 @@ if __name__ == "__main__":
         # # backward from pixel that should contain a star but doesn't
         # # low probability overall, higher for current night.
         mlog.info("Scenario 4")
-        path1 = [(rmcr,1), (maskexp,0), (cr1, 0), (rmbg1, 0), (flatcorrect1, 0),
-                (darkcorrect1, 0), (biascorrect1, 0), (rmoverscan1, 0), (badpixrm1, 0),
-                (addmaskattr1, 0), (linearity1, 0)]
-        path2 = [(rmcr,1), (maskexp,1), (cr2, 0), (rmbg2, 0), (flatcorrect2, 0),
-                 (darkcorrect2, 0), (biascorrect2, 0), (rmoverscan2, 0), (badpixrm2, 0),
-                 (addmaskattr2, 0), (linearity2, 0)]
+        path1 = [(rmcr,1)]#, (maskexp,0), (cr1, 0), (rmbg1, 0), (flatcorrect1, 0),
+        #(darkcorrect1, 0), (biascorrect1, 0), (rmoverscan1, 0), (badpixrm1, 0),
+         #       (addmaskattr1, 0), (linearity1, 0)]
+        path2 = [(rmcr,1)]#, (maskexp,1), (cr2, 0), (rmbg2, 0), (flatcorrect2, 0),
+#                 (darkcorrect2, 0), (biascorrect2, 0), (rmoverscan2, 0), (badpixrm2, 0),
+ #                (addmaskattr2, 0), (linearity2, 0)]
 
-        pixels = [ (x,y) for x in xrange(25, 50) for y in xrange(30, 55)  ]
+        pixels = [ (x,y) for x in xrange(25, 50) for y in xrange(30, 50)  ]
         queries = []
         queries.append([pixels, runid, path1, 'backward'])
         queries.append([pixels, runid, path2, 'backward'])
@@ -346,16 +343,8 @@ if __name__ == "__main__":
     def set_all_strategy(strat, w):
 
         def set_strategy(wop):
-            # if strat in [STRAT_STATS, STRAT_NOOP, STRAT_Q]:
-            #     Runtime.instance().set_strategy(wop.op, strat)
-            #     return
-            if wop.op.implements_mapfunctions():
-                Runtime.instance().set_strategy(wop.op, STRAT_F)
-            #elif strat == STRAT_DIFF:
-            elif wop.op.implements_dmapfunctions():
-                Runtime.instance().set_strategy(wop.op, STRAT_DIFF)
-            # else:
-            #         Runtime.instance().set_strategy(wop.op, STRAT_Q)
+            if Mode.FULL_MAPFUNC in wop.op.supported_modes():
+                Runtime.instance().set_strategy(wop.op, Strat.full())
             else:
                 Runtime.instance().set_strategy(wop.op, strat)
         w.visit(set_strategy)
@@ -479,7 +468,7 @@ if __name__ == "__main__":
 
 
     # noop
-    set_all_strategy(STRAT_NOOP, w)
+    set_all_strategy(Strat.noop(), w)
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'noop', logdir, "lsst_noop")
@@ -487,9 +476,9 @@ if __name__ == "__main__":
 
 
     # query everything
-    set_all_strategy(STRAT_Q, w)
+    set_all_strategy(Strat.query(), w)
     for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, STRAT_Q)
+        Runtime.instance().set_strategy(op, Strat.query())
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'query', logdir, "lsst_queryall")
@@ -500,9 +489,9 @@ if __name__ == "__main__":
         
 
     # PSET everything
-    set_all_strategy(STRAT_Q, w)
+    set_all_strategy(Strat.query(), w)
     for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, STRAT_PSET)
+        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'pset', logdir, "lsst_psetall")
@@ -512,11 +501,14 @@ if __name__ == "__main__":
 
 
     # optimal
-    set_all_strategy(STRAT_Q, w)
-    Runtime.instance().set_strategy(cr1, STRAT_FDIFF)
-    Runtime.instance().set_strategy(cr2, STRAT_FDIFF)
-    Runtime.instance().set_strategy(clust, STRAT_BULK)
-    Runtime.instance().set_strategy(rmcr, STRAT_FDIFF)
+    set_all_strategy(Strat.query(), w)
+    FDIFF = Strat([Bucket([ Desc(Mode.FULL_MAPFUNC, Spec.default(), True),
+                            Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True) ])])
+
+    Runtime.instance().set_strategy(cr1, FDIFF)
+    Runtime.instance().set_strategy(cr2, FDIFF)
+    Runtime.instance().set_strategy(clust, Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY)))
+    Runtime.instance().set_strategy(rmcr, FDIFF)
 
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'opt2', logdir, "lsst_opt2")
@@ -533,7 +525,7 @@ if __name__ == "__main__":
 
 
     if runtype == 'opt':
-        set_all_strategy(STRAT_NOOP,w)
+        set_all_strategy(Strat.noop(),w)
         run_iterations(logdir, runtype, scidata1, scidata2, False)
         run_id = w._runid-1
 
@@ -550,7 +542,7 @@ if __name__ == "__main__":
         runconstraint = 100
 
         for disksize in disksizes:
-            set_all_strategy(STRAT_F, w)
+            set_all_strategy(Strat.single(Mode.FULL_MAPFUNC, Spec.default()), w)
 
             # check if we can load a strategy from the current directory
             # assumes TEST + optimize was run already
@@ -561,10 +553,10 @@ if __name__ == "__main__":
                                       disksize, runconstraint, 0)
             Stats.instance().add_opt_mappings(strategies)
 
-            set_all_strategy(STRAT_Q, w)
+            set_all_strategy(Strat.query(), w)
             for op, strats in strategies.items():
                 for s in strats:
-                    if s != STRAT_F:
+                    if s != Strat.full():
                         print op, s
                     Runtime.instance().set_strategy(op, s)
 
@@ -576,7 +568,7 @@ if __name__ == "__main__":
         Stats.instance().add_exec(smallshape[0], smallshape[1],
                                   runmode, runtype, logdir,
                                   "lsst_full")
-
+        raise RuntimeError, "not implemented"
         strat = Strategy.from_str(runtype)
         set_all_strategy(strat, w)
 
