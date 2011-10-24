@@ -354,7 +354,6 @@ if __name__ == '__main__':
         try:
             runtype = set_strat()
             print runtype
-            continue
         except:
             basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
             disksizes = [0.001, 0.01, 0.1, 1, 5]
@@ -363,7 +362,6 @@ if __name__ == '__main__':
             for disk in disksizes:
                 runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
                 print runtype, disk
-                continue
                 run(ds, runmode, runtype, disk, runcost, eids)
                 for x in run_qs(w, get_qs()):
                     print x
