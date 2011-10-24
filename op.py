@@ -383,6 +383,7 @@ class Workflow(object):
             child = pstore.join(child, arridx, backward=True)
             try:
                 child = DedupQuery(child, shape)
+                print op, len(child)
             except:
                 print op
                 raise
@@ -428,8 +429,9 @@ class Workflow(object):
     def get_optimizable_ops(self):
         ops = set()
         def collect(w):
-            if Mode.FULL_MAPFUNC not in w.op.supported_modes():
-                ops.add(w.op)
+            #if Mode.FULL_MAPFUNC not in w.op.supported_modes():
+            #if 'Vali' in str(w.op):
+            ops.add(w.op)
         self.visit(collect)
         return list(ops)
 
@@ -440,17 +442,17 @@ class Workflow(object):
 
         bstrats = [Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True),
                    Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.KEY), True),
-                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.MANY), True),
-                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.MANY), True),
+                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
+                   Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
                    Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.MANY), True),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
                    Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.MANY), True)]
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)]
 
         fstrats = [Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
-                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.MANY), False),
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
                    Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
-                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.MANY), False)]
+                   Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)]
 
         cstrats = []
         for bstrat in bstrats:

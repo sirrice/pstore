@@ -237,6 +237,7 @@ class Stats(object):
         res = cur.execute("""select rowid from exec where runmode = ? and
                              width = ? and height = ? and finished = 1 and runtype = 'stats'""",
                           (runmode, shape[0], shape[1]))
+
         eids = [int(row[0]) for row in res]
         slog.info ('get_noops\t%s\t%s\t%s', runmode, shape, eids )
         cur.close()
@@ -276,7 +277,7 @@ class Stats(object):
         from workflow_run as wr, workflow_inputs as wi, pstore_stats as ps
         where wr.rowid = wi.wid and ps.wid = wr.rowid and ps.arridx = wi.arridx and
         wr.eid in %s and wr.opid = %s and wi.arridx = %s """ % (eids, opid, arridx)
-        
+
         cur = self.conn.cursor()
         cur.execute(q)
         ret = cur.fetchone()

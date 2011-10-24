@@ -50,17 +50,18 @@ class OneToOne(Op):
         #output = numpy.array(map(self.f, inputs.flat), dtype=float).reshape(inputs.shape)
         
         start = time.time()
-        if pstore.uses_mode(Mode.PTR):
-            nrow, ncol = inputs.shape
-            for ridx in xrange(nrow):
-                for cidx in xrange(ncol):
-                    pstore.write(((ridx, cidx),), ((ridx, cidx),))
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([1])
             pstore.set_inareas([1])
             pstore.set_outarea(1)
             pstore.set_ncalls(reduce(mul, output.shape))
             pstore.set_noutcells(reduce(mul, output.shape))
+        
+        elif pstore.uses_mode(Mode.PTR):
+            nrow, ncol = inputs.shape
+            for ridx in xrange(nrow):
+                for cidx in xrange(ncol):
+                    pstore.write(((ridx, cidx),), ((ridx, cidx),))
         end = time.time()            
 
         return output, {'provoverhead' : end-start}
@@ -92,16 +93,16 @@ class Mean(Op):
 
         start = time.time()
         x = 0
-        if pstore.uses_mode(Mode.PTR):
-            nrow, ncol = inputs.shape
-            coords = [(ridx, cidx) for ridx in xrange(nrow) for cidx in xrange(ncol)]
-            pstore.write(coords, coords)
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([reduce(mul,inputs.shape)])
             pstore.set_inareas([reduce(mul,inputs.shape)])
             pstore.set_outarea(reduce(mul,inputs.shape))
             pstore.set_ncalls(reduce(mul, inputs.shape))
             pstore.set_noutcells(reduce(mul, inputs.shape))
+        elif pstore.uses_mode(Mode.PTR):
+            nrow, ncol = inputs.shape
+            coords = [(ridx, cidx) for ridx in xrange(nrow) for cidx in xrange(ncol)]
+            pstore.write(coords, coords)
         end = time.time()
 
         mean = float(total / ncells)
@@ -140,15 +141,15 @@ class MeanSingleVal(Op):
         ncells = reduce(mul, inputs.shape)
         
         start = time.time()
-        if pstore.uses_mode(Mode.PTR):
-            nrow, ncol = inputs.shape
-            pstore.write(((0,0),),  [(x,y) for x in xrange(nrow) for y in xrange(ncol)])
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([reduce(mul,inputs.shape)])
             pstore.set_inareas([reduce(mul,inputs.shape)])
             pstore.set_outarea(1)
             pstore.set_ncalls(1)
             pstore.set_noutcells(1)
+        elif pstore.uses_mode(Mode.PTR):
+            nrow, ncol = inputs.shape
+            pstore.write(((0,0),),  [(x,y) for x in xrange(nrow) for y in xrange(ncol)])
 
         end = time.time()
 
@@ -164,7 +165,7 @@ class MeanSingleVal(Op):
     
 
     def fmap(self, coord, run_id, arridx):
-        return ((0,),)
+        return ((0,0),)
 
     def bmap(self, coord, run_id, arridx):
         shape = self.wrapper.get_input_shape(run_id, 0)
@@ -195,17 +196,17 @@ class Merge(Op):
         output = self.f(left, right, out=output).astype(float)
 
         start = time.time()
-        if pstore.uses_mode(Mode.PTR):
-            for x in xrange(nrow):
-                for y in xrange(ncol):
-                    coords = ((x,y),)
-                    pstore.write(coords, coords, coords)
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([1,1])
             pstore.set_inareas([1,1])
             pstore.set_outarea(1)
             pstore.set_ncalls(reduce(mul, output.shape))
             pstore.set_noutcells(reduce(mul, output.shape))
+        elif pstore.uses_mode(Mode.PTR):
+            for x in xrange(nrow):
+                for y in xrange(ncol):
+                    coords = ((x,y),)
+                    pstore.write(coords, coords, coords)
         end = time.time()
         return output, {'provoverhead' : (end-start)}
 
@@ -244,18 +245,18 @@ class Subsample(Op):
 
         start = time.time()
 
-        if pstore.uses_mode(Mode.PTR):
-            mins = (box[0][0], box[1][0])
-            outcoords = ((x,y) for x in xrange(output.shape[0]) for y in xrange(output.shape[1]))
-            #boxcoords = [(x,y) for x in xrange(2) for y in xrange(2)]
-            for outcoord in outcoords:
-                pstore.write( (outcoord,), ((outcoord[0]+mins[0], outcoord[1]+mins[1]), ))
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([1])
             pstore.set_inareas([1])
             pstore.set_outarea(1)
             pstore.set_ncalls(reduce(mul, output.shape))
             pstore.set_noutcells(reduce(mul, output.shape))
+        elif pstore.uses_mode(Mode.PTR):
+            mins = (box[0][0], box[1][0])
+            outcoords = ((x,y) for x in xrange(output.shape[0]) for y in xrange(output.shape[1]))
+            #boxcoords = [(x,y) for x in xrange(2) for y in xrange(2)]
+            for outcoord in outcoords:
+                pstore.write( (outcoord,), ((outcoord[0]+mins[0], outcoord[1]+mins[1]), ))
         end = time.time()
         return output, {'provoverhead' : (end-start)}
 
@@ -305,16 +306,16 @@ class Transpose(Op):
 
         output = arr.transpose().copy()
 
-        if pstore.uses_mode(Mode.PTR):
-            for x in xrange(output.shape[0]):
-                for y in xrange(output.shape[1]):
-                    pstore.write(((x,y), ), ((y,x), ))
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([1])
             pstore.set_inareas([1])
             pstore.set_outarea(1)
             pstore.set_ncalls(reduce(mul, output.shape))
             pstore.set_noutcells(reduce(mul, output.shape))
+        elif pstore.uses_mode(Mode.PTR):
+            for x in xrange(output.shape[0]):
+                for y in xrange(output.shape[1]):
+                    pstore.write(((x,y), ), ((y,x), ))
         return output, {}
 
     def alltoall(self, arridx):

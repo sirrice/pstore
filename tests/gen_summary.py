@@ -1,3 +1,5 @@
+import sys
+sys.path.append('..')
 from stats import Stats
 import matplotlib.pyplot as plt
 import matplotlib
@@ -29,7 +31,7 @@ ALLPATHS = "SELECT rowid, (rowid-1) % 7, 0, 0 FROM pq where pq.eid = ? order by 
 PATH = """SELECT opid FROM iq WHERE iq.pqid = ? order by iq.rowid"""
 
 #stats = Stats.instance('./outputs/sep_28/stats.db')
-stats = Stats.instance('./outputs/test/stats.db')
+stats = Stats.instance('./_output/pablostats.db')
 conn = stats.conn
 cur = conn.cursor()
 
@@ -37,10 +39,11 @@ cur = conn.cursor()
 
 def get_plot(runmode):
     # get all the experiments
-    cur.execute("select rowid, runmode, notes, width, height, diskconstraint, runconstraint from exec where runmode = ? and runtype != 'noop'  order by rowid, diskconstraint", (runmode,))
+    cur.execute("select rowid, runmode, runtype, width, height, diskconstraint, runconstraint from exec where runmode = ? and runtype != 'noop'  order by rowid, diskconstraint", (runmode,))
     title = 'runmode%d' % runmode
     features = ['overhead', 'disk']#, 'fcost', 'bcost']
     exps = cur.fetchall()
+
 
     labels = []
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
@@ -161,10 +164,15 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     plt.cla()
     plt.clf()
 
+
+if len(sys.argv) > 1:
+    runmode = int(sys.argv[1])
+    get_plot(runmode)
+
 #get_plot(1)
 #get_plot(3)
 #get_plot(4)
-get_plot(5)
+#get_plot(1)
 #get_plot(-1)
 #for runmode in range(3, 8):
 #    get_plot(runmode)

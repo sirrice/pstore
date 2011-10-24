@@ -1,8 +1,5 @@
 import matplotlib.pyplot as plt
 import psycopg2 as pg
-import Gnuplot as gplot
-
-
 
 
 
@@ -95,7 +92,6 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
         except:
             print lines
             raise
-
         # draw the graph
         fig = plt.figure()
         ax = fig.add_subplot(111, ylim=[0,ymax], **plotargs)
@@ -105,7 +101,7 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
             ax.plot(xs, ys, markers[idx], label=strats[idx])
             #ax.semilogy(xs, ys, markers[idx], label=strats[idx]) 
         #ax.ylim(0, ymax)
-        ax.legend()
+        ax.legend(loc=2)
         ax.set_ylabel(ylabel)
         ax.set_xlabel(xlabel)
         ax.set_title(postfix)
@@ -126,20 +122,24 @@ conn = get_db()
 # where clause (constraints)
 # table
 
-ptrrun = 8#13
-boxrun = 16 #17
-table = 'model_plot_abs'
-table = 'box_model_plot_abs'
-where = "1=1"#"fanin = 100"#"density = 1.0"
+import sys
+if len(sys.argv) < 2:
+    print 'python gen_read_graphs.py run_id table_name'
+    exit()
+run = int(sys.argv[1])
+table = sys.argv[2]
 
-# for xaxis in ['fanin', 'fanout', 'density', 'nqs']:
-#     #plot(conn, xaxis, 'overhead-(sercost+writecost)', ptrrun,  table=table, where=where)    
-#     plot(conn, xaxis, 'overhead', ptrrun,  table=table, where=where)
-#     plot(conn, xaxis, 'disk', ptrrun,  table=table, where=where)
-#     plot(conn, xaxis, 'fcost', ptrrun,  table=table, where=where)
-#     plot(conn, xaxis, 'bcost', ptrrun,  table=table, where=where)
-# conn.close()
-# exit()
+#table = 'box_model_plot_abs'
+where = "strat != 'ONE_MANY_f' and strat != 'ONE_MANY_b'"#"1=1"#"fanin = 100"#"density = 1.0"
+
+for xaxis in ['fanin', 'fanout', 'density', 'nqs']:
+    #plot(conn, xaxis, 'overhead-(sercost+writecost)', run,  table=table, where=where)    
+    plot(conn, xaxis, 'overhead', run,  table=table, where=where)
+    plot(conn, xaxis, 'disk', run,  table=table, where=where)
+    plot(conn, xaxis, 'fcost', run,  table=table, where=where)
+    plot(conn, xaxis, 'bcost', run,  table=table, where=where)
+conn.close()
+exit()
 
 where = "1=1"#opcost = 6"
 for xaxis in [ 'density']:#, 'nqs', 'writecost']:

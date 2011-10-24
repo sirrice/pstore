@@ -34,6 +34,12 @@ class ModelPredictor(object):
                     if not stats or len(stats) == 0:
                         stats = [1.0] * 8
                         stats.append(0.00001)
+                    if stats[0] == 0:
+                        print stats
+                        print op
+                        print arridx
+                        exit()
+                    
                     self.cache[(op,arridx)] = stats
         self.workflow.visit(f)
 
@@ -77,6 +83,7 @@ class ModelPredictor(object):
             #print "stats",  op, strat, arridx, weight, stats
             
             fanin, area, density, oclustsize, nptrs, noutcells, outputsize, inputsize, opcost = stats
+
             fqsize = self.fqsizes.get(op, 1)
             bqsize = self.bqsizes.get(op, 1)
             boxperc = area / inputsize
@@ -85,18 +92,21 @@ class ModelPredictor(object):
             disk = disk_model(strat, fanin, oclustsize, density, noutcells)
             fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
             bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
-            qcost = fcost * fprob + bcost * (1.0 - fprob)
+            #print fcost, bcost, fprob, op, strat
+            qcost = (fcost * fprob) + (bcost * (1.0 - fprob))
+            #print qcost, op, strat
+
 
             modes = strat.modes()
             for mode in modes:
-                if mode not in op.supported_modes():
+                if mode != Mode.QUERY and mode not in op.supported_modes():
                     qcost = 10000.0
 
-            opcosts.append(weight*opcost)
-            provs.append(weight*prov)
-            disks.append(weight*disk)
+            opcosts.append(opcost)
+            provs.append(prov)
+            disks.append(disk)
             qcosts.append(weight*qcost)
-            
+        return sum(opcosts), sum(provs), sum(disks), sum(qcosts)
         return np.mean(opcosts), np.mean(provs), np.mean(disks), np.mean(qcosts)
 
 
@@ -145,7 +155,10 @@ class ModelPredictor(object):
         for child, idx in wop.children():
             if child == path[0][0] and idx == path[0][1]:
                 found = True
-        if not found: raise RuntimeError
+        if not found:
+            for child, idx in wop.children():
+                print child, idx
+            raise RuntimeError, ("could not find %s\t%d" % ( path[0][0], path[0][1] ))
         
         self._proc_fpath(mininputsize, run_id, path)
 

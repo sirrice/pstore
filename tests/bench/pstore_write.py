@@ -133,17 +133,18 @@ args:
         Strat.single(Mode.QUERY, Spec(Spec.NONE, Spec.NONE), True),
         
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
         
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
         ]
 
-    
     #noutputs = [10, 100, 1000, 5000]
     #fanins = [1, 10]
     #oclustsizes = [1, 50, 100]

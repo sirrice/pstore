@@ -13,7 +13,10 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     """
     ops = w.get_optimizable_ops()
     matstrats = w.get_matstrats()
-    pairs = [(op, s) for op in ops for s in matstrats] 
+    pairs = [(op, s) for op in ops for s in matstrats]
+    # for op, s in pairs:
+    #     print mp.get_pqcost(op, s), mp.get_disk(op, s), op, s
+    # exit()
 
     x = [0] * len(pairs)
 
@@ -28,8 +31,6 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     A = [A1, A2]
     B = [[maxdisk, maxoverhead]]
 
-
-
     Aeq = []
     for i in xrange(len(ops)):
         row = []
@@ -41,15 +42,17 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
         Aeq.append(row)
     Beq = [[1] * len(ops)]
 
+    F = [pair[0] + pair[1] * 0.0001 for pair in zip(F, A2)]
+
     nlog.debug( "Max constraints Disk(%f)\tOverhead(%f)", maxdisk, maxoverhead )
     
     nlog.debug( "%s     \t" * 7, "operator      ","strategy","proqcost",
                 "provsize","overhead","savecost","runtime")
     for op, s in pairs:
         nlog.debug( "%s\t%s\t% 5f\t% 5f\t% 5f", op, s,
-                                            mp.get_pqcost(op,s),
-                                            mp.get_disk(op,s),
-                                            mp.get_provcost(op, s))
+                    mp.get_pqcost(op,s),
+                    mp.get_disk(op,s),
+                    mp.get_provcost(op, s))
     strategies = nlp_exec(F, ops, matstrats, A, B, Aeq, Beq)
     return strategies
 
@@ -70,24 +73,10 @@ def nlp_exec(F, ops, matstrats, A, B, Aeq, Beq):
 
     X0 = [0 for op in ops for s in xrange(len(F))] 
 
-    #A = [list(disk)]
-    #B = [[maxdisk]]
-
-    # Aeq = []
-    # for i in xrange(len(ops)):
-    #     row = []
-    #     for col in xrange(ncombos):
-    #         if len(matstrats) * i <= col and col < len(matstrats) * (i+1):
-    #             row.append(1)
-    #         else:
-    #             row.append(0)
-    #     Aeq.append(row)
-    # Beq = [[1] * len(ops)]
-
     nruns = len(F) / (len(ops) * len(matstrats))
 
     # main program
-    f = file('lsst_1.m', 'w')
+    f = file('../matlab/lsst_1.m', 'w')
     print >> f, "F   = [%s]" % (','.join(map(str, F)))
     print >> f, 'X0  = [%s]' % (';'.join(map(str, X0)))
     print >> f, print_matrix('Aeq', Aeq)
@@ -112,9 +101,9 @@ def nlp_exec(F, ops, matstrats, A, B, Aeq, Beq):
     """ % (len(matstrats), len(ops), nruns, nruns, '%d\\n', '%d\\n')
     f.close()
 
-    f = file("runlsst.m", 'w')
+    f = file("./runlsst.m", 'w')
     print >> f, """function assignment = runlsst()
-    cd ~/mitnotes/research/provenance/src/sim
+    cd ~/mitnotes/research/provenance/src/pstore/matlab
     lsst_1""" 
     f.close()
 
@@ -124,7 +113,7 @@ def nlp_exec(F, ops, matstrats, A, B, Aeq, Beq):
     os.system('echo "runlsst" | matlab -nodesktop 2> /dev/null > /dev/null')
 
     # read solution
-    assignmentmatrix = parse_nlpresult()
+    assignmentmatrix = parse_nlpresult('../matlab/nlpresult.dat')
     nlog.debug ( "==Assignment Matrix==")
     for row in assignmentmatrix:
         nlog.debug (str(row))
@@ -144,7 +133,7 @@ def assign_strategies(matrix, ops, strats):
                 ret[op].append(s)
     return ret
 
-def parse_nlpresult(fname='nlpresult.dat'):
+def parse_nlpresult(fname):
     f = file(fname, 'r')
     rows = int(f.readline())
     cols = int(f.readline())

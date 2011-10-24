@@ -1,4 +1,4 @@
-import struct, math, time
+import struct, math, time, random
 import bsddb3 as bsddb
 from StringIO import StringIO
 from operator import mul, or_, and_
@@ -110,14 +110,14 @@ class IPstore(object):
     def get_fanins(self):
         if self.ncalls == 0:
             return [1] * self.nargs
-        return map(lambda fanin: fanin / self.noutcells, self.fanins)
+        return map(lambda fanin: float(fanin) / self.noutcells, self.fanins)
     def get_inareas(self):
         if self.ncalls == 0:
             return [1] * self.nargs
-        return map(lambda inarea: inarea / self.ncalls, self.inareas)
+        return map(lambda inarea: float(inarea) / self.ncalls, self.inareas)
     def get_oclustsize(self):
         if self.ncalls == 0: return 1
-        return self.noutcells / self.ncalls
+        return self.noutcells / float(self.ncalls)
     def get_densities(self):
         if self.ncalls == 0:
             return [1] * self.nargs
@@ -167,7 +167,7 @@ class StatPStore(IPstore):
         self.nsampled = 0
 
     def uses_mode(self, mode):
-        return mode == Mode.PTR
+        return mode in ( Mode.PTR, Mode.FULL_MAPFUNC )
     
     @instrument
     def update_stats(self, outcoords, *incoords_arr):
@@ -190,8 +190,8 @@ class StatPStore(IPstore):
         self.noutcells += noutcells
         self.ncalls += 1
 
-
     def write(self, outcoords, *incoords_arr):
+        if self.nsampled > 10 and random.random() < 0.9: return
         self.update_stats(outcoords, *incoords_arr)
         self.nsampled += 1
     
@@ -223,10 +223,16 @@ class PStore1(IPstore):
             extract = lambda coord: self.extract_incells(((coord,), None), arridx)
         else:
             extract = lambda coord: self.op.fmap(coord, self.run_id, arridx)
-        
-        for l in left:
-            for coord in extract(l):
-                yield coord
+
+        try:
+            for l in left:
+                for coord in extract(l):
+                    yield coord
+        except Exception, e:
+            print self.op
+            print backward
+            print e
+            raise
 
 
         
@@ -245,7 +251,6 @@ class DiskStore(IPstore):
             return os.path.getsize(self.fname)
         except:
             return 1
-            
 
     def extract_outcells_enc(self, obj):
         """
@@ -345,8 +350,6 @@ class DiskStore(IPstore):
             n = len(coords)
             s = struct.pack("I%dI" % n, n, *coords)
             buf.write(s)
-            if "Cluster" in str(self.op) and len(s) == 53:
-                print 'serialize', n, n * 4 + 4, len(s)
             
         elif mode == Spec.BOX:
             box = data
@@ -423,8 +426,8 @@ class DiskStore(IPstore):
                 matches = lambda coord, coords: tuple(coord) in coords
             extract = lambda obj: self.extract_outcells(obj)
 
-        for r in self.get_iter():
-            coords = pred(r)
+        for r in self.get_iter(): # r is a pair of unparsed strings
+            coords = pred(r) # 
             for l in left:
                 if matches(l,coords):
                     for coord in extract(r):
@@ -496,7 +499,7 @@ class PStore2(DiskStore):
 
     def extract_incells(self, obj, arridx):
         outcoords = self.extract_outcells(obj)
-        return self.op.bmap_obj((outcoords, obj[1]),
+        return self.op.bmap_obj((outcoords, self._parse(StringIO(obj[1]), Spec.BINARY)),
                                 self.run_id,
                                 arridx)
 
@@ -526,7 +529,7 @@ class PStore3(DiskStore):
         super(PStore3, self).__init__(op, run_id, f, strat)
 
     def uses_mode(self, mode):
-        return mode == Mode.PT_MAPFUNC
+        return mode == Mode.PTR
 
     @instrument
     def update_stats(self, outcoords, *incoords_arr):
@@ -871,6 +874,14 @@ class MultiPStore(IPstore):
         super(MultiPStore,self).__init__(op, run_id, fname, strat)
         self.bpstore = bpstore
         self.fpstore = fpstore
+        self.pt_stores = []
+        self.ptr_stores = []
+
+        for pstore in [bpstore, fpstore]:
+            if pstore.uses_mode(Mode.PT_MAPFUNC):
+                self.pt_stores.append(pstore)
+            if pstore.uses_mode(Mode.PTR):
+                self.ptr_stores.append(pstore)
 
     def uses_mode(self, mode):
         return self.bpstore.uses_mode(mode) or self.fpstore.uses_mode(mode)
@@ -891,8 +902,12 @@ class MultiPStore(IPstore):
 
     @instrument
     def write(self, outcoords, *incoords_arr):
-        self.bpstore.write(outcoords, *incoords_arr)
-        self.fpstore.write(outcoords, *incoords_arr) 
+        if len(incoords_arr) == 1 and isinstance(incoords_arr[0], str):
+            for pstore in self.pt_stores:
+                pstore.write(outcoords, *incoords_arr)
+        else:
+            for pstore in self.ptr_stores:
+                pstore.write(outcoords, *incoords_arr)
 
     def join(self, left, arridx, backward=True):
         if backward:
@@ -1051,7 +1066,7 @@ if __name__ == '__main__':
     op = BenchOp((100,100))
 
     all_coords = []
-    for n in [1, 10, 100, 1000, 10000]:
+    for n in [1, 10, 1000]:
         coords = [(i / 100, i % 100) for i in xrange(n)]
         all_coords.append(coords)
 
@@ -1092,7 +1107,7 @@ if __name__ == '__main__':
             f = lambda: ser(pstore, coords, spec)
             h = lambda: par(pstore, s, spec)
 
-            t = timeit.Timer(h)
+            t = timeit.Timer(f)
             t.timeit(100)
             cost = t.timeit(1000) / 1000.0
             print '%d\t%d\t' % (len(coords), spec), float(cost) / len(coords)

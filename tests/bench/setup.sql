@@ -18,16 +18,16 @@ where avgoc.rid = stats.rid and runs.id = stats.rid and runs.notes = 'ptr_model'
 order by stats.rid;
 
 
-drop view if exists ptr_plot_perc ;
-create view ptr_plot_perc as 
-select stats.rid, strat, fanin, fanout, density, nqs, noutput,
-       disk/arrsize::float as disk, round((overhead/avgoc.min)::numeric,4) as overhead, 
-       round((sercost/opcost)::numeric, 4) as sercost,
-       round((writecost/opcost)::numeric, 4) as writecost,
-       fcost, bcost, round(avgoc.avg::numeric,4) as opcost, arrsize
-from runs, stats, (select s2.rid, min(s2.opcost) from stats as s2 group by rid) as avgoc 
-where avgoc.rid = stats.rid and runs.id = stats.rid and runs.notes = 'ptr'
-order by stats.rid;
+-- drop view if exists ptr_plot_perc ;
+-- create view ptr_plot_perc as 
+-- select stats.rid, strat, fanin, fanout, density, nqs, noutput,
+--        disk/arrsize::float as disk, round((overhead/avgoc.min)::numeric,4) as overhead, 
+--        round((sercost/opcost)::numeric, 4) as sercost,
+--        round((writecost/opcost)::numeric, 4) as writecost,
+--        fcost, bcost, round(avgoc.avg::numeric,4) as opcost, arrsize
+-- from runs, stats, (select s2.rid, min(s2.opcost) from stats as s2 group by rid) as avgoc 
+-- where avgoc.rid = stats.rid and runs.id = stats.rid and runs.notes = 'ptr'
+-- order by stats.rid;
 
 
 drop view if exists box_plot_abs ;
@@ -38,17 +38,17 @@ from runs, stats
 where runs.id = stats.rid and runs.notes = 'box'
 order by stats.rid;
 
-drop view if exists box_plot_perc ;
-create view box_plot_perc as 
-select stats.rid, strat, fanin, fanout, density, nqs, noutput,
-       disk/arrsize::float as disk, round((overhead/opcost)::numeric,4) as overhead, 
-       round((sercost/opcost)::numeric, 4) as sercost,
-       round((writecost/opcost)::numeric, 4) as writecost,
-       round((fcost/opcost)::numeric,4) as fcost, round((bcost/opcost)::numeric,4) as bcost, 
-       round((opcost::numeric),3) as opcost
-from runs, stats
-where runs.id = stats.rid and runs.notes = 'box'
-order by stats.rid;
+-- drop view if exists box_plot_perc ;
+-- create view box_plot_perc as 
+-- select stats.rid, strat, fanin, fanout, density, nqs, noutput,
+--        disk/arrsize::float as disk, round((overhead/opcost)::numeric,4) as overhead, 
+--        round((sercost/opcost)::numeric, 4) as sercost,
+--        round((writecost/opcost)::numeric, 4) as writecost,
+--        round((fcost/opcost)::numeric,4) as fcost, round((bcost/opcost)::numeric,4) as bcost, 
+--        round((opcost::numeric),3) as opcost
+-- from runs, stats
+-- where runs.id = stats.rid and runs.notes = 'box'
+-- order by stats.rid;
 
 
 
