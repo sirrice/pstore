@@ -10,13 +10,7 @@ from stats import Stats
 
 wlog = logging.getLogger('workflow')
 logging.basicConfig()
-wlog.setLevel(logging.ERROR)
-
-
-
-diskseek = 0.0005#0.005
-diskread = 0.000000017339533 * 1048576
-
+wlog.setLevel(logging.INFO)
 
 
 class Wrapper(object):
@@ -50,7 +44,6 @@ class Wrapper(object):
         self.slots = [None] * self.nargs
 
     def add_input(self, idx, arrid):
-        wlog.info("%s\taddinput\t%d", self.op, idx)
         self.slots[idx] = arrid
 
     def get_input(self, run_id, arridx):
@@ -360,8 +353,9 @@ class Workflow(object):
             pstore = Runtime.instance().get_pstore(op, run_id) 
             if pstore is None: raise RuntimeError
             child = pstore.join(child, arridx, backward=False)
+            start = time.time()
             child = DedupQuery(child, shape)
-            #print op, len(child)
+            wlog.debug( time.time()-start, op, len(child) )
 
         end = time.time()
         return DedupQuery(child, shape)
@@ -382,10 +376,11 @@ class Workflow(object):
 
             child = pstore.join(child, arridx, backward=True)
             try:
+                start = time.time()
                 child = DedupQuery(child, shape)
-                print op, len(child)
+                wlog.debug( time.time()-start, op, len(child) )
             except:
-                print op
+                wlog.error( 'error running back\t%s',  op )
                 raise
 
         return DedupQuery(child, shape)
@@ -430,7 +425,7 @@ class Workflow(object):
         ops = set()
         def collect(w):
             #if Mode.FULL_MAPFUNC not in w.op.supported_modes():
-            #if 'Vali' in str(w.op):
+            #if  'CreateM' in str(w.op):
             ops.add(w.op)
         self.visit(collect)
         return list(ops)

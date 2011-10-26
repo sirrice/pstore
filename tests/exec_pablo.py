@@ -173,7 +173,7 @@ def create_workflow():
         path = [ (gn, 0) , (cm, 2), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
         coords = [ (0, i)  for i in xrange(20)]
         qs.append( [ coords, runid, path, 'forward' ] )
-
+        
         #
         # backward queries
         #
@@ -227,7 +227,7 @@ def create_workflow():
             for op in w.ops.keys():
                 matches = True
                 for mode in s.modes():
-                    if s not in op.supported_modes():
+                    if mode not in op.supported_modes():
                         matches = False
 
                 if Mode.FULL_MAPFUNC in op.supported_modes():
@@ -253,42 +253,40 @@ def create_workflow():
 
         def ptr0():
             strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTMAP_ONE_KEY_B'
 
         def ptr00():
             strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.KEY), True)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTMAP_MANY_KEY_B'
 
         def ptr1():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTR_ONE_KEY_B'
 
         def ptr2():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTR_MANY_KEY_B'
 
         def ptr3():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTR_ONE_KEY_F'
 
         def ptr4():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)
-            set_ptr_wrapper(strat)
+            set_ptr_wrapper_opt(strat)
             return 'PTR_MANY_KEY_F'
 
         def ptr5():
             buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)]),
                        Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)])]
             s = Strat(buckets)
-            set_ptr_wrapper(s)
+            set_ptr_wrapper_opt(s)
             return 'PTR_F_B'
-
-
 
 
         def opt(ds, qs, eids, runmode, disk, runcost):
@@ -297,14 +295,15 @@ def create_workflow():
                 q[0] = len(q[0])
 
             mp = ModelPredictor(eids, w, qs)
-            strategies = run_nlp(Stats.instance(), w, mp, disk,
-            runcost)
+            strategies = run_nlp(Stats.instance(), w, mp, disk,runcost)
             for op in sorted(strategies.keys()):
                 Runtime.instance().set_strategy(op, strategies[op][0])
+
             return 'opt'
 
-        return [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
-                ptr4, ptr5, opt]
+        return [stat, query_opt, ptr1, ptr3, ptr5, opt]
+        [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
+         ptr4, ptr5, opt]
     
     return w, run, get_strats, get_qs
 
@@ -312,7 +311,6 @@ def run_qs(w, qs):
     ret = []
     for coords, runid, path, direction in qs:
         start = time.time()
-
         
         if direction == 'forward':
             res = w.forward_path(coords, runid, path)
@@ -348,7 +346,7 @@ if __name__ == '__main__':
     Stats.instance('_output/pablostats.db')
     w, run, get_strats, get_qs = create_workflow()
 
-    qs = get_qs()
+
 
     for set_strat in get_strats():
         try:
@@ -356,11 +354,13 @@ if __name__ == '__main__':
             print runtype
         except:
             basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
-            disksizes = [0.001, 0.01, 0.1, 1, 5]
-            runcost = 100000
+            disksizes = [0, 0.01, 0.1, 1, 10]
+            runcost = 100
             eids = Stats.instance().get_matching_noops(runmode, ds.shape)
             for disk in disksizes:
+                qs = get_qs()                
                 runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+
                 print runtype, disk
                 run(ds, runmode, runtype, disk, runcost, eids)
                 for x in run_qs(w, get_qs()):

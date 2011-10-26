@@ -59,8 +59,6 @@ def disk_model_desc(desc, fanin, fanout, density, noutput):
     disk = 0
     if desc.backward:
         if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            return noutput * 4 + noutput * fanin * 4
-            
             disk = fanout * 4 + fanout * fanin * 4
         elif spec == (Spec.COORD_ONE, Spec.KEY):
             disk = fanout * 4 + fanin * 4 + fanout * 28 + 28
@@ -171,7 +169,7 @@ def ser_model_desc(desc, fanin, fanout, density, noutput):
 
 
 def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-    scost = 1000000000000
+    scost = 10
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
@@ -182,22 +180,17 @@ def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inp
     return scost
 
 def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-    if desc.mode == Mode.QUERY:
-        return runtime + ser_model_desc(Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-                                        fanin, fanout, density, noutput)
-    if desc.mode == Mode.FULL_MAPFUNC:
-        return nqs * 2e-7
+    if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
+        return backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea)
     
     outcost, incost = get_parse_costs(desc)
     diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
     ncalls = int(math.ceil(noutput / float(fanout)))
-    #if not desc.backward:
-    #    fanin, fanout = fanout, fanin
+    dedupcost = nqs * sel * 1e-6 # cost of load() in dedup.  includes overlap of results
 
     if desc.mode == Mode.PT_MAPFUNC:
-        if not desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
-            return diskcost + nqs * sel * 6e-7
-        return diskcost + noutput / fanout * 2e-6 + nqs * sel * 6e-7
+        itercost = (noutput / fanout) * nqs * 0.000001
+        return diskcost + itercost + noutput / fanout * 2e-6 + dedupcost
         
     coord_one = 8.51511955261e-6
     coord_many = 1.36479878426e-6
@@ -212,8 +205,9 @@ def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
 
         extractcost = fanout * outcost
         extractcost *= nqs * sel
+        datacost = nqs * sel *  0.000007 # cost to get data from bdb        
 
-        qcost = parsecost + extractcost
+        qcost = parsecost + extractcost + datacost + dedupcost
         return qcost
     elif not desc.backward:
         # if optimized for forward queries
@@ -225,8 +219,9 @@ def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
 
         parsecost = fanin * (noutput / fanout) * incost
         extractcost = fanout * outcost * sel
-        qcost = parsecost + extractcost
-        qcost *= nqs
+        matchcost = (noutput / fanout) * 0.000001   # cost to execute join predicate        
+        qcost = parsecost + extractcost + matchcost
+        qcost *= nqs        
         
     else:
         # if optimized for backward queries
@@ -247,10 +242,11 @@ def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
             # extractcost = runtime * perc * nreexec
         else:
             extractcost = fanout * outcost * nqs * sel
+        matchcost = nptrs * nqs * 0.000001   # cost to execute join predicate                
 
-        qcost = (parsecost + extractcost) 
+        qcost = parsecost + extractcost + matchcost 
     
-    return diskcost + qcost
+    return diskcost + qcost + dedupcost
     
 def box_model(density, fanin, inputarea, runtime, nptrs):
     a,b,c = 0.08147001934235978, 0.00852998065764022, 1.4085629809324707
@@ -263,33 +259,39 @@ def box_model(density, fanin, inputarea, runtime, nptrs):
     return cost
 
 def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-    scost = 1000000000000
+    scost = 10
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
             cost = backward_model_desc(desc, fanin, fanout, density, noutput,
-                                      runtime, nqs, sel, inputarea=inputarea)
+                                       runtime, nqs, sel, inputarea=inputarea)
             bcost += cost
         scost = min(scost, bcost)
     return scost
 
 
 def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-
     if desc.mode == Mode.QUERY:
-        return runtime + ser_model_desc(Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-                                        fanin, fanout, density, noutput)
+        return runtime + nqs * sel * 1e-6
     if desc.mode == Mode.FULL_MAPFUNC:
-        return nqs * 2e-7
+        return nqs * 1e-6
     
     outcost, incost = get_parse_costs(desc)
     diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
     ncalls = int(math.ceil(noutput / float(fanout)))
+    dedupcost = nqs * fanin * 1e-6 # cost of load() in dedup.  includes overlap of results
 
     if desc.mode == Mode.PT_MAPFUNC:
         if desc.backward and desc.spec.outcoords== Spec.COORD_ONE:
-            return diskcost + nqs * sel * 6e-7
-        return diskcost + noutput / fanout * 2e-6 + nqs * sel * 6e-7
+            sercost = nqs * 0.000008  # cost to serialize coords into bdb key
+            extractcost = nqs * sel * 0.000016 # cost to extract data from pointers
+            datacost = nqs * sel *  0.000007 # cost to get data from bdb
+            return diskcost + sercost + extractcost + datacost + dedupcost
+
+        # n iterations * nqs in each iteration
+        itercost = (noutput / fanout) * nqs * 0.000001
+        #print '\titercost', itercost, (noutput / fanout * nqs), noutput, nqs, fanout
+        return diskcost + itercost + noutput / fanout * 2e-6  + dedupcost
 
 
     coord_one = 8.51511955261e-6
@@ -308,8 +310,9 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
         else:
             extractcost = fanin * incost
         extractcost *= nqs * sel
+        datacost = nqs * sel *  0.000007 # cost to get data from bdb
 
-        qcost = parsecost + extractcost
+        qcost = parsecost + extractcost + extractcost + datacost + dedupcost
         return qcost
 
     elif desc.backward:
@@ -322,17 +325,19 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
             extractcost = (baseline + runtime * perc) * sel 
         else:
             extractcost = fanin * incost * sel
+        matchcost = (noutput / fanout) * 0.000001   # cost to execute join predicate
 
-        qcost = parsecost + extractcost
+        qcost = parsecost + extractcost + matchcost
         qcost *= nqs
         
     else:
         nptrs = desc.spec.outcoords == Spec.COORD_ONE and noutput or noutput / fanout
         parsecost = fanin * incost * nqs * nptrs
         extractcost = fanout * outcost * nqs * sel
-        qcost = parsecost + extractcost
+        matchcost = nptrs * nqs * 0.000001   # cost to execute join predicate        
+        qcost = parsecost + extractcost + matchcost
     
-    return diskcost + qcost
+    return diskcost + qcost + dedupcost
 
 if __name__ == '__main__':
     strats = [Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),

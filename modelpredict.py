@@ -1,6 +1,7 @@
 import numpy as np
 from models import *
 from stats import *
+from operator import mul
 
 
 class ModelPredictor(object):
@@ -92,7 +93,7 @@ class ModelPredictor(object):
             disk = disk_model(strat, fanin, oclustsize, density, noutcells)
             fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
             bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
-            #print fcost, bcost, fprob, op, strat
+
             qcost = (fcost * fprob) + (bcost * (1.0 - fprob))
             #print qcost, op, strat
 
@@ -100,7 +101,7 @@ class ModelPredictor(object):
             modes = strat.modes()
             for mode in modes:
                 if mode != Mode.QUERY and mode not in op.supported_modes():
-                    qcost = 10000.0
+                    qcost = 10.0
 
             opcosts.append(opcost)
             provs.append(prov)
@@ -146,7 +147,7 @@ class ModelPredictor(object):
             self.counts[key] = [0,0] # f, b
             self.fqsizes[key] = []
         self.counts[key][0] += 1
-        self.fqsizes[key].append(ncoords)
+        self.fqsizes[key].append(ncoords)        
 
         path = path[1:]
         if len(path) == 0:  return
@@ -169,15 +170,18 @@ class ModelPredictor(object):
         if op not in self.bqsizes:
             self.bqsizes[op] = []
         self.bqsizes[op].append(ncoords)
-        
+
 
         if (op, arridx) not in self.counts:
             self.counts[(op, arridx)] = [0,0]
         self.counts[(op,arridx)][1] += 1
 
+
         # multiply by fanin
         fanin = self.cache.get((op,arridx), (1,1))[0]
         ncoords *= fanin
+        ncoords = min(ncoords, reduce(mul, op.wrapper.get_input_shape(run_id, arridx)))
+
 
         path = path[1:]
         if len(path) == 0: return 

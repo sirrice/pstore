@@ -7,6 +7,12 @@ from strat import *
 from queryresult import *
 from util import subarray
 
+
+plog = logging.getLogger('provstore')
+logging.basicConfig()
+plog.setLevel(logging.INFO)
+
+
 #
 # obj is defined as unparsed inputs and outputs
 # (serialized outputs, serialized inputs)
@@ -69,7 +75,8 @@ class IPstore(object):
 
         self.stats = {}
 
-
+        # whether stats are operator given, or calculated by sampling
+        self.sampled = True 
         self.outarea = 0
         self.inareas = [0] * self.nargs
         self.fanins = [0] * self.nargs
@@ -108,38 +115,32 @@ class IPstore(object):
 
 
     def get_fanins(self):
-        if self.ncalls == 0:
-            return [1] * self.nargs
-        return map(lambda fanin: float(fanin) / self.noutcells, self.fanins)
+        return self.fanins
     def get_inareas(self):
-        if self.ncalls == 0:
-            return [1] * self.nargs
-        return map(lambda inarea: float(inarea) / self.ncalls, self.inareas)
+        return self.inareas
     def get_oclustsize(self):
-        if self.ncalls == 0: return 1
-        return self.noutcells / float(self.ncalls)
+        return self.outarea
     def get_densities(self):
-        if self.ncalls == 0:
-            return [1] * self.nargs
-        return [pair[1] > 0 and float(pair[0]) / pair[1] or 1.0
-                for pair in zip(self.get_fanins(), self.get_inareas())]
+        return map(lambda p: p[1] > 0 and float(p[0]) / p[1] or 1.0, zip(self.get_fanins(), self.get_inareas()))
     def get_nptrs(self):
         return sum([self.noutcells * fanin for fanin in self.get_fanins()])
-        
-
-        
     
 
     def set_fanins(self, fanins):
         self.fanins = fanins
+        self.sampled = False
     def set_inareas(self, areas):
         self.inareas = areas
+        self.sampled = False
     def set_outarea(self, area):
         self.outarea = area
+        self.sampled = False
     def set_ncalls(self, n):
         self.ncalls = n
+        self.sampled = False
     def set_noutcells(self, n):
         self.noutcells = n
+        self.sampled = False
     def _in_densities(self):
         return map(lambda p: p[0] / p[1], zip(self.fanins, self.inareas))
     in_densities = property(_in_densities)
@@ -165,6 +166,7 @@ class StatPStore(IPstore):
     def __init__(self, op, run_id, fname, strat):
         super(StatPStore, self).__init__(op, run_id, fname, strat)
         self.nsampled = 0
+        self.nskipped = 0
 
     def uses_mode(self, mode):
         return mode in ( Mode.PTR, Mode.FULL_MAPFUNC )
@@ -191,9 +193,32 @@ class StatPStore(IPstore):
         self.ncalls += 1
 
     def write(self, outcoords, *incoords_arr):
-        if self.nsampled > 10 and random.random() < 0.9: return
+        if self.nsampled > 10 and random.random() < 0.9:
+            self.nskipped += 1
+            return
+
         self.update_stats(outcoords, *incoords_arr)
         self.nsampled += 1
+
+    def close(self):
+        if self.nsampled == 0: return
+        if self.ncalls == 0:
+            self.fanins = [1] * self.nargs
+            self.inareas = [1] * self.nargs
+            self.outarea = 1
+            
+            self.ncalls = 1
+            self.noutcells = 1
+            return
+        
+        self.fanins = map(lambda fanin: float(fanin) / self.noutcells, self.fanins)
+        self.inareas = map(lambda inarea: float(inarea) / self.ncalls, self.inareas)
+        self.outarea = self.noutcells / float(self.ncalls)
+
+        self.noutcells = (self.noutcells / self.nsampled) * (self.nsampled + self.nskipped)
+        self.ncalls = self.nsampled + self.nskipped
+        
+        
     
 
 class PStore1(IPstore):
@@ -229,9 +254,7 @@ class PStore1(IPstore):
                 for coord in extract(l):
                     yield coord
         except Exception, e:
-            print self.op
-            print backward
-            print e
+            plog.error('%s:\t%s\tbackward(%s)', str(e), str(self.op), backward )
             raise
 
 
@@ -410,8 +433,9 @@ class DiskStore(IPstore):
                 pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
                 matches = in_box
             else:
-                pred = self.extract_outcells
-                matches = lambda coord, outcoords: tuple(coord) in outcoords
+                pred = self.extract_outcells_enc
+                matches = lambda coord, outcoords: coord in outcoords
+                left = map(self.enc_out, left)
             extract = lambda obj: self.extract_incells(obj, arridx)
         else:
             if Spec.BOX == self.spec.payload:
@@ -422,30 +446,77 @@ class DiskStore(IPstore):
                     return box
                 matches = in_box
             else:
-                pred = lambda obj: self.extract_incells(obj, arridx)
-                matches = lambda coord, coords: tuple(coord) in coords
+                pred = lambda obj: self.extract_incells_enc(obj, arridx)
+                matches = lambda coord, coords: coord in coords
+                left = map(lambda l: self.enc_in(l, arridx), left)
             extract = lambda obj: self.extract_outcells(obj)
 
+        
+        
+        
+        predcost = 0.0
+        matchcost = 0.0
+        extractcost = 0.0
+        niter = 0.0
+        npred = 0.0
+        nmatches = 0.0
         for r in self.get_iter(): # r is a pair of unparsed strings
-            coords = pred(r) # 
+            niter += 1
+            start = time.time()
+            coords = pred(r) #
+            predcost += time.time() - start
+            npred += len(coords)
+
             for l in left:
-                if matches(l,coords):
-                    for coord in extract(r):
+                start = time.time()
+                b = matches(l, coords)
+                matchcost += time.time() - start
+                nmatches += 1
+                if b:
+                    start = time.time()
+                    e = extract(r)
+                    extractcost += time.time() - start
+                    for coord in e:
                         yield coord
                     break
         self.close()
+        
+        plog.debug( "n/left:   %d\t%d", niter, len(left) )
+        plog.debug( "predcost: %f\t%d", predcost, npred )
+        plog.debug( "match:    %f\t%f\t%d", matchcost, matchcost / (1.0+nmatches), nmatches )
+        plog.debug( "extract:  %f", extractcost )
 
     def hash_join(self, left, arridx):
+        datacost = 0.0
+        extractcost = 0.0
+        sercost = 0.0
+        niter = 1.0
+        nfound = 1.0
+        total = 0.0
+        tstart = time.time()
         for l in left:
+            niter += 1
+            start = time.time()
             enc = (self.enc_out(l),)
             key = StringIO()
             self._serialize(enc, key, self.spec.outcoords)
             key = key.getvalue()
+            sercost += time.time() - start
             if key not in self.bdb: continue
+            nfound += 1
+            start = time.time()
             payload = self.bdb[key]
+            datacost += time.time() - start
             if payload:
-                for coord in self.extract_incells((key, payload), arridx):
+                start = time.time()
+                e = self.extract_incells((key, payload), arridx)
+                extractcost += time.time() - start
+                for coord in e:
                     yield coord
+                    
+        plog.debug( "datacost:    %f\t%f", datacost, datacost / nfound )
+        plog.debug( "extractcost: %f\t%f", extractcost, extractcost / nfound )
+        plog.debug( "sercost:     %f\t%f", sercost, sercost / niter )
 
 
     def open(self, new=False):
@@ -496,6 +567,10 @@ class PStore2(DiskStore):
         self.noutcells += noutcells
         self.ncalls += 1
         
+
+    def extract_incells_enc(self, obj, arridx):
+        enc = lambda c: self.enc_in(c, arridx)
+        return map( enc, self.extract_incells(obj, arridx) )
 
     def extract_incells(self, obj, arridx):
         outcoords = self.extract_outcells(obj)
@@ -569,7 +644,7 @@ class PStore3(DiskStore):
             try:
                 enc_outcoords = map(self.enc_out, outcoords)
             except:
-                print outcoords
+                plog.error('could not encode outcoord\t%s', outcoords )
                 raise
             key = StringIO()
             for enc in enc_outcoords:
@@ -656,7 +731,7 @@ class IBox(object):
         Runtime.instance().set_reexec(self.op, self.run_id, reexec)
         self.op.run(inputs, self.run_id)
         Runtime.instance().clear_reexec(self.op, self.run_id)
-
+        
         for coord in pqres:
             yield coord
         
@@ -840,12 +915,7 @@ def create_ftype(ptype):
         @instrument
         def write(self, outcoords, *incoords_arr):
             newincoords = self.compress_incoords_arr(incoords_arr)
-            if True:#try:
-                self.pstore.write(newincoords, outcoords)
-            # except Exception, e:
-            #     print newincoords
-            #     print outcoords
-            #     raise e
+            self.pstore.write(newincoords, outcoords)
 
         def join(self, left, arridx, backward=True):
             shape = self.inshapes[arridx]
@@ -857,7 +927,6 @@ def create_ftype(ptype):
             else:
 
                 left = [(arridx, enc(coord, shape)) for coord in left]
-                #print left
                 for coord in self.pstore.join(left, arridx, not backward):
                     yield coord
 

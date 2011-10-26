@@ -69,8 +69,8 @@ def get_plot(runmode):
 
 
     print table
-    draw(ymax*10, ['overhead','disk'], table, labels, '%s_overhead' % title,
-         'X times baseline', plotargs={'yscale':'log'})
+    draw(ymax*1.2, ['overhead','disk'], table, labels, '%s_overhead' % title,
+         'X times baseline', plotargs={'yscale':'linear'})
 
 
     # collect all the paths
@@ -125,7 +125,7 @@ def get_plot(runmode):
             ymax = max(ymax, cost)
 
     #features = sorted(['query-%s' % v for v in allpaths.values()])
-    draw(ymax, sorted(allpaths.values()), table, labels, '%s_qcosts' % title, 'querycost',
+    draw(2, sorted(allpaths.values()), table, labels, '%s_qcosts' % title, 'querycost',
          plotargs={'yscale':'linear'})
     return
     # get strategies
@@ -140,10 +140,10 @@ def get_plot(runmode):
 def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     # draw the graph
     figparams = matplotlib.figure.SubplotParams(top=0.8)
-    fig = plt.figure(figsize=(15, 5), subplotpars=figparams)
+    fig = plt.figure(figsize=(30, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
-    width = 0.035
+    width = 0.037
     colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', '#eeeeee']
     n = 0
     rects = []

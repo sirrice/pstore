@@ -86,6 +86,19 @@ class Desc(object):
             s = "MAP"
         elif self.mode == Mode.PT_MAPFUNC:
             s = "PTMAP"
+            x = []
+            for foo in (self.spec.outcoords, self.spec.payload):
+                if foo == Spec.KEY:
+                    x.append('KEY')
+                elif foo == Spec.COORD_MANY:
+                    x.append("MANY")
+                elif foo == Spec.COORD_ONE:
+                    x.append("ONE")
+                elif foo == Spec.BOX:
+                    x.append("BOX")
+                else:
+                    x.append(str(foo))
+            s = '%s_%s' % (s, "_".join(x))
         elif self.mode == Mode.QUERY:
             s = "Q"
         elif self.mode == Mode.PTR:
