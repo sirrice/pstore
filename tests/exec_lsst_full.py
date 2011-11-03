@@ -473,7 +473,17 @@ if __name__ == "__main__":
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'noop', logdir, "lsst_noop")
     run_iterations(logdir, runtype, scidata1, scidata2, False)
+    Stats.instance().finish_exec()    
 
+    # stats
+    set_all_strategy(Strat.stat(), w)
+        
+    Stats.instance().add_exec(smallshape[0], smallshape[1],
+                              runmode, 'stats', logdir, "lsst_stats")
+    run_iterations(logdir, runtype, scidata1, scidata2, False)
+    Stats.instance().finish_exec()
+
+    exit()
 
     # query everything
     set_all_strategy(Strat.query(), w)
@@ -486,7 +496,7 @@ if __name__ == "__main__":
 
     for maxcount in [-1]:#, 1, 10, 100]:
         print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
-        
+    Stats.instance().finish_exec()        
 
     # PSET everything
     set_all_strategy(Strat.query(), w)
@@ -498,7 +508,7 @@ if __name__ == "__main__":
     run_iterations(logdir, runtype, scidata1, scidata2, False)
     for maxcount in [-1]:#, 1, 10, 100]:
         print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
-
+    Stats.instance().finish_exec()
 
     # optimal
     set_all_strategy(Strat.query(), w)

@@ -52,16 +52,17 @@ class MergeSingleVal(Op):
         #output = numpy.array(map(lambda x: self.f((x,right)), left.flat)).reshape(left.shape)
 
         start = time.time()
-        if pstore.uses_mode(Mode.PTR):
-            for x in xrange(nrow):
-                for y in xrange(ncol):
-                    pstore.write(((x,y),),  ((x,y),), ((0,0),))
-        else:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
             pstore.set_fanins([1,1])
             pstore.set_inareas([1,1])
             pstore.set_outarea(1)
             pstore.set_ncalls(reduce(mul, output.shape))
             pstore.set_noutcells(reduce(mul, output.shape))
+
+        if pstore.uses_mode(Mode.PTR):
+            for x in xrange(nrow):
+                for y in xrange(ncol):
+                    pstore.write(((x,y),),  ((x,y),), ((0,0),))
         end = time.time()
         return output, {'provoverhead' : (end-start)}
 
@@ -136,7 +137,14 @@ class Convolve(Op):
         kr, kc = kernel.shape[0]/2, kernel.shape[1]/2
 
         start = time.time()
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode(Mode.FULL_MAPFUNC):
+            pstore.set_fanins([1,reduce(mul, kernel.shape)])
+            pstore.set_inareas([1,reduce(mul, kernel.shape)])
+            pstore.set_outarea(1)
+            pstore.set_ncalls(reduce(mul, arr.shape))
+            pstore.set_noutcells(reduce(mul, arr.shape))
+
+        if pstore.uses_mode(Mode.PTR):
             for rid in xrange(ar):
                 for cid in xrange(ac):
                     minr, maxr = (max(0,rid - kr), min(ar, rid + kr+1))
@@ -144,16 +152,11 @@ class Convolve(Op):
                     prov0 = [(px, py) for px in xrange(minr, maxr) for py in xrange(minc, maxc)]
                     prov1 = [(kx, ky) for kx in range(maxr-minr) for ky in xrange(maxc-minc)]
                     pstore.write(((rid, cid),), prov0, prov1)
-        elif pstore.strat.mode == Mode.PT_MAPFUNC:
+
+        if pstore.uses_mode(Mode.PT_MAPFUNC):
             for x in xrange(ar):
                 for y in xrange(ac):
                     pstore.write(((x,y),), '')
-        else:
-            pstore.set_fanins([1,reduce(mul, kernel.shape)])
-            pstore.set_inareas([1,reduce(mul, kernel.shape)])
-            pstore.set_outarea(1)
-            pstore.set_ncalls(reduce(mul, arr.shape))
-            pstore.set_noutcells(reduce(mul, arr.shape))
         end = time.time()
 
         output = np.empty(arr.shape, float)
@@ -249,12 +252,12 @@ class Cluster(Op):
         #
         
         start = time.time()
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode(Mode.PTR):
             # stores all pointers explicitly
             for cid, coords in enumerate(clusters.values()):
                 pstore.write(coords, coords, ((0,0),))
                 
-        elif pstore.strat.mode == Mode.PT_MAPFUNC:
+        if pstore.uses_mode(Mode.PT_MAPFUNC):
             # stores just enough information to recalculate provenance
             for cid, coords in enumerate(clusters.values()):
                 pstore.write(coords, '')
@@ -420,12 +423,12 @@ class CRDetect(Op):
 
         start = time.time()
 
-        if pstore.strat.mode == Mode.PT_MAPFUNC | Mode.FULL_MAPFUNC:
+        if pstore.uses_mode(Mode.PT_MAPFUNC | Mode.FULL_MAPFUNC):
             # more efficient storage.  Storage class 2
             for (x,y) in np.argwhere(finalsel):
                 pstore.write(((x,y),), '')
 
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode(Mode.PTR):
             # store every single pointer explicitly
             # for comparisons, would never do this in real life
             # storage class 3
@@ -567,7 +570,7 @@ class RemoveCRs(Op):
         # every cell is at least one to one with itself
         start = time.time()
         #if pstore.strat.mode == Mode.PT_MAPFUNC | Mode.FULL_MAPFUNC:
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode(Mode.PTR):
             for x in xrange(cleanarray.shape[0]):
                 for y in xrange(cleanarray.shape[1]):
                     coords = ((x,y),)
@@ -578,8 +581,8 @@ class RemoveCRs(Op):
         
         # A loop through every cosmic pixel :
         for cosmicpos in cosmicindices:
-            x = cosmicpos[0]
-            y = cosmicpos[1]
+            x = int(cosmicpos[0])
+            y = int(cosmicpos[1])
             cutout = padarray[x:x+5, y:y+5].ravel() # remember the shift due to the padding !
             #print cutout
             # Now we have our 25 pixels, some of them are np.Inf, and we want to take the median
@@ -603,11 +606,11 @@ class RemoveCRs(Op):
 
             
             start = time.time()
-            if pstore.strat.mode == (Mode.PTR, Mode.FULL_MAPFUNC | Mode.PT_MAPFUNC):                
-               
+            if pstore.uses_mode(Mode.PTR) or pstore.uses_mode(Mode.FULL_MAPFUNC | Mode.PT_MAPFUNC):
+                
                 coord = ((x,y),)
                 box = ((x,y), (min(x+6,cleanarray.shape[0]), min(y+6,cleanarray.shape[1])))
-                if pstore.strat.mode == Mode.PTR:
+                if pstore.uses_mode(Mode.PTR):
                     prov0 = [(px,py)
                              for px in xrange(box[0][0],box[1][0])
                              for py in xrange(box[1][0],box[1][1])]

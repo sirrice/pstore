@@ -43,6 +43,9 @@ class ModelPredictor(object):
                     
                     self.cache[(op,arridx)] = stats
         self.workflow.visit(f)
+    
+    def get_input_shape(self, op, arridx):
+        return self.cache[(op, arridx)][7]
 
     def get_provcost(self, op, strat):
         opcost, prov, disk, qcosts = self.est_cost(op,strat)
@@ -89,7 +92,7 @@ class ModelPredictor(object):
             bqsize = self.bqsizes.get(op, 1)
             boxperc = area / inputsize
 
-            prov = write_model(strat, fanin, oclustsize, density, noutcells) 
+            prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
             disk = disk_model(strat, fanin, oclustsize, density, noutcells)
             fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
             bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
@@ -180,7 +183,7 @@ class ModelPredictor(object):
         # multiply by fanin
         fanin = self.cache.get((op,arridx), (1,1))[0]
         ncoords *= fanin
-        ncoords = min(ncoords, reduce(mul, op.wrapper.get_input_shape(run_id, arridx)))
+        ncoords = min(ncoords, self.get_input_shape(op, arridx))
 
 
         path = path[1:]

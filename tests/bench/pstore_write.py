@@ -15,7 +15,7 @@ import numpy as np
 def run_model(arr, strat, noutput, fanin, oclustsize, density):
     runtime = 0.0038750171661377
     disk = disk_model(strat, fanin, oclustsize, density, noutput)
-    cost = write_model(strat, fanin, oclustsize, density, noutput)
+    cost = write_model(strat, fanin, oclustsize, density, noutput, runtime)
     fcost = forward_model(strat, fanin, oclustsize, density, noutput, runtime,
                           10, 1.0, inputarea=reduce(mul, arr.shape))
     bcost = backward_model(strat, fanin, oclustsize, density, noutput, runtime,
@@ -48,7 +48,7 @@ def run_op(arr, strat, noutput, fanin, oclustsize, density):
 
         if i == 0: continue
         runcosts = (pstore.get_stat('_serialize',0) + pstore.get_stat('_parse',0) ,
-                    0, 
+                    pstore.get_stat('write', 0) / pstore.nsampled / (fanin + oclustsize), 
                     pstore.get_stat('write', -1) + pstore.get_stat('close', 0),
                     opcost,
                     pstore.disk())
@@ -58,19 +58,21 @@ def run_op(arr, strat, noutput, fanin, oclustsize, density):
 
 def run_qs(rpstore, arr, strat, noutput, fanin, oclustsize, density, backward=True):
     costs = []
-
-    for i in xrange(3):
-        for coords in gen_forward_qs(arr, 50, 10, 1.0, noutput, fanin, oclustsize, density):
-            rpstore.clear_stats()
-            start = time.time()
-            nres = 0
-            for coord in rpstore.join(coords, 0, backward=backward):
-                nres += 1
-            if i > 0:
-                #costs.append((time.time()-start, rpstore.get_stat('_parse')))
-                costs.append((time.time()-start, nres))
-    costs = tuple(map(numpy.mean, zip(*costs)))
-    return costs
+    try:
+        for i in xrange(3):
+            for coords in gen_forward_qs(arr, 50, 10, 1.0, noutput, fanin, oclustsize, density):
+                rpstore.clear_stats()
+                start = time.time()
+                nres = 0
+                for coord in rpstore.join(coords, 0, backward=backward):
+                    nres += 1
+                if i > 0:
+                    #costs.append((time.time()-start, rpstore.get_stat('_parse')))
+                    costs.append((time.time()-start, nres))
+        costs = tuple(map(numpy.mean, zip(*costs)))
+        return costs
+    except:
+        return (-1, -1)
 
     
 
@@ -148,6 +150,7 @@ args:
     #noutputs = [10, 100, 1000, 5000]
     #fanins = [1, 10]
     #oclustsizes = [1, 50, 100]
+    #strats = [Strat.stat()]
     for noutput in noutputs:
         for strat in strats:
             for fanin in fanins:

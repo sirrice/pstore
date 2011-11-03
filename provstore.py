@@ -192,6 +192,7 @@ class StatPStore(IPstore):
         self.noutcells += noutcells
         self.ncalls += 1
 
+    @instrument
     def write(self, outcoords, *incoords_arr):
         if self.nsampled > 10 and random.random() < 0.9:
             self.nskipped += 1
@@ -1133,6 +1134,7 @@ if __name__ == '__main__':
     strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True)
 
     op = BenchOp((100,100))
+    
 
     all_coords = []
     for n in [1, 10, 1000]:

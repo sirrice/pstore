@@ -150,6 +150,31 @@ class Stats(object):
             raise e
 
 
+    def add_modelrun(self, runid, op, strat, disk, overhead, eids):
+        cur = self.conn.cursor()        
+
+        for arridx in xrange(op.wrapper.nargs):
+            fanin, area, density, oclustsize, nptrs, noutcells, outputsize, wiarea, opcost = self.get_op_stats(eids, op.oid, arridx)
+
+            if arridx == 0:
+                cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?)",
+                            (self.eid, runid, op.oid, str(op).strip(), str(strat),
+                             nptrs, oclustsize, noutcells, outputsize, opcost))
+                wid = cur.lastrowid
+                cur.execute("insert into pstore_overhead values (?,?,?,?,?)",
+                            (wid, 0, overhead, 0, disk))
+
+            cur.execute("insert into pstore_stats values (%d,%d,%f,%d,%f)" %
+                        (wid, arridx, fanin, area, density))
+            cur.execute("insert into workflow_inputs values (?, ?, ?)",
+                        (wid, arridx, wiarea))
+        self.conn.commit()
+        cur.close()
+        return wid
+
+            
+        
+    
     def add_wrun(self, runid, op, cost, inputs, output, pstore):
         strat = str(pstore.strat)
         overhead = pstore.stats.get('write', 0)
@@ -234,11 +259,13 @@ class Stats(object):
 
     def get_matching_noops(self, runmode, shape):
         cur = self.conn.cursor()
+        print runmode, shape
         res = cur.execute("""select rowid from exec where runmode = ? and
                              width = ? and height = ? and finished = 1 and runtype = 'stats'""",
                           (runmode, shape[0], shape[1]))
 
         eids = [int(row[0]) for row in res]
+        print eids
         slog.info ('get_noops\t%s\t%s\t%s', runmode, shape, eids )
         cur.close()
         return eids
@@ -312,9 +339,6 @@ class Stats(object):
         ret = [tuple(row) for row in res]
         cur.close()
         return ret
-    
-
-
 
 
     def get_xxx(self, op, s, idx, run_id=None, default=0.001):

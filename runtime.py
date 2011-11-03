@@ -42,7 +42,7 @@ class Runtime(object):
 
     def set_strategy(self, op, strat):
         self.cur_strats[op] = strat
-        print "set\t%s\t%s" % (op, strat)
+        log.debug( "set\t%s\t%s" % (op, strat) )
 
     def get_strategy(self, op, run_id = None):
         if run_id == None or op not in self.old_strats or run_id not in self.old_strats[op]:

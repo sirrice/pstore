@@ -82,6 +82,8 @@ class Desc(object):
         s = ''
         if self.mode == Mode.NOOP:
             s = 'NOOP'
+        elif self.mode == Mode.STAT:
+            s = 'STAT'
         elif self.mode == Mode.FULL_MAPFUNC:
             s = "MAP"
         elif self.mode == Mode.PT_MAPFUNC:
@@ -156,6 +158,11 @@ class Strat(object):
     @staticmethod
     def noop():
         return Strat.single(Mode.NOOP, Spec.default(), True)
+
+
+    @staticmethod
+    def stat():
+        return Strat.single(Mode.STAT, Spec.default(), True)
 
     @staticmethod
     def query():

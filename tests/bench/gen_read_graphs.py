@@ -11,8 +11,6 @@ import psycopg2 as pg
 
 
 
-dims = ['fanin', 'oclustsize', 'density', 'qsize']
-labels = 'bulkF,bulkB,setF,setB,gridF,gridB,runF,runB'.split(',')
 markers = ['-', '--o']#, '--', '-.', ',', 'o', 'v', '^', '>', '1', '*', ':']
 colors = ['b', 'g', 'r', 'c', 'm', 'y']
 markers = ['%s%s' % (color, m) for color in colors for m in markers]
@@ -22,9 +20,10 @@ markers = ['%s%s' % (color, m) for color in colors for m in markers]
 
 def get_strats(conn, run, table, where='1=1'):
     c = conn.cursor()
-    c.execute('select distinct strat from %s where rid = %s and %s' %  (table, run,  where))
+    c.execute('select distinct strat from %s where rid = %s and %s order by strat' %  (table, run,  where))
     strats = map(lambda row: row[0], c.fetchall())
     c.close()
+    #return ['stats','noop']
     return strats
 
 def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
@@ -131,13 +130,14 @@ table = sys.argv[2]
 
 #table = 'box_model_plot_abs'
 where = "strat != 'ONE_MANY_f' and strat != 'ONE_MANY_b'"#"1=1"#"fanin = 100"#"density = 1.0"
+#where = '1=1'
 
 for xaxis in ['fanin', 'fanout', 'density', 'nqs']:
     #plot(conn, xaxis, 'overhead-(sercost+writecost)', run,  table=table, where=where)    
     plot(conn, xaxis, 'overhead', run,  table=table, where=where)
     plot(conn, xaxis, 'disk', run,  table=table, where=where)
-    plot(conn, xaxis, 'fcost', run,  table=table, where=where)
-    plot(conn, xaxis, 'bcost', run,  table=table, where=where)
+    # plot(conn, xaxis, 'fcost', run,  table=table, where=where)
+    # plot(conn, xaxis, 'bcost', run,  table=table, where=where)
 conn.close()
 exit()
 

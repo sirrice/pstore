@@ -92,6 +92,8 @@ class Wrapper(object):
     def ready(self):
         return None not in self.slots
 
+    
+
     def run(self, run_id):
         # queue input into the write input slot,
         # execute oprator if all inputs are available
@@ -119,7 +121,6 @@ class Wrapper(object):
         outputshape = output.shape
         del output
         self.outputs[run_id] = outputid
-
 
         Stats.instance().add_wrun(run_id, self.op, runtime, inputshapes, outputshape, pstore)
         return outputid

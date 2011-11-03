@@ -83,18 +83,16 @@ class BenchOp(Op):
         pstore = self.pstore(run_id)
 
         tmparr = np.zeros(arr.shape)
+        
         ingen = inter_to_inlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
         outgen = inter_to_outlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
 
-        if pstore.strat.mode == Mode.PTR:
+        if pstore.uses_mode( Mode.PTR ):
             for incoords, outcoords in zip(ingen, outgen):
                 pstore.write(outcoords, incoords)
-        elif pstore.strat.mode == Mode.PT_MAPFUNC:
+        if pstore.uses_mode( Mode.PT_MAPFUNC ):
             for incoords, outcoords, in zip(ingen, outgen):
                 pstore.write(outcoords, '')
-        else:
-            for incoords, outcoords in zip(ingen, outgen):
-                pass
 
         pstore.close()
         return pstore

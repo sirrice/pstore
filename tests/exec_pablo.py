@@ -137,6 +137,44 @@ def create_workflow():
     w.connect(klass, val, 0)
     w.connect(tr, val, 1)
 
+    def run_model(ds, runmode, runtype, disk=0, runcost=0, eids = [-1]):
+        runtype = '%s_model' % runtype
+        eids = Stats.instance().get_matching_noops(runmode, ds.shape) or [-1]
+        Stats.instance().add_exec(ds.shape[0], ds.shape[1],
+                                  runmode, runtype, './_output',
+                                  "notes", disk, runcost, eids[0])
+        eid = Stats.instance().eid
+
+        qs = get_qs()
+        qs = map(list, qs)
+        for q in qs:
+            q[0] = len(q[0])
+
+        mp = ModelPredictor(eids, w, qs)
+        for op, s in Runtime.instance().cur_strats.items():
+            disk = mp.get_disk(op,s) * 1048576.0
+            overhead = mp.get_provcost(op, s)
+            opcost = mp.get_opcost(op, s)
+
+            Stats.instance().add_modelrun(eid, op, s, disk, overhead, eids)
+
+        qs = map(list, get_qs())
+        for q in qs:
+            coords, runid, path, direction = q
+            mp = ModelPredictor(eids, w, [[len(coords), runid, path, direction]])
+            qcost = 0.0
+            for op, s in Runtime.instance().cur_strats.items():
+                qcost += mp.get_pqcost(op,s)
+            nres = 0
+            path_ops = [x[0] for x in path]
+            Stats.instance().add_pq(runid, path_ops, direction, [len(coords)], qcost, nres) 
+
+        Stats.instance().finish_exec()   
+
+
+
+
+
     def run(ds, runmode, runtype, disk=0, runcost=0, eids=[-1]):
         random.seed(0)
         Stats.instance().add_exec(ds.shape[0], ds.shape[1],
@@ -301,13 +339,13 @@ def create_workflow():
 
             return 'opt'
 
-        return [stat, query_opt, ptr1, ptr3, ptr5, opt]
+        return [stat]#, query_opt, opt, ptr1, ptr3, ptr5]
         [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
          ptr4, ptr5, opt]
     
-    return w, run, get_strats, get_qs
+    return w, run, run_model, get_strats, get_qs
 
-def run_qs(w, qs):
+def run_qs(w, qs, bmodel):
     ret = []
     for coords, runid, path, direction in qs:
         start = time.time()
@@ -331,6 +369,10 @@ def run_qs(w, qs):
         ret.append(  (nres, qcost) )
     return ret
 
+
+
+
+
 if __name__ == '__main__':
     fname = '../data/MD_train_set.txt'    
     if len(sys.argv) > 1:
@@ -339,46 +381,59 @@ if __name__ == '__main__':
     else:
         runmode = 1
 
+    if len(sys.argv) > 2:
+        bmodel = bool(sys.argv[2])
+    else:
+        bmodel = False
+
 
     with file(fname, 'r') as f:
         ds = np.array([l.strip().split('\t') for l in f])[1:,:]
 
     Stats.instance('_output/pablostats.db')
-    w, run, get_strats, get_qs = create_workflow()
+    w, run, run_model, get_strats, get_qs = create_workflow()
+
+
+    def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
+        basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
+        disksizes = [0.01, 0.1, 1, 10]
+        runcost = 100
+        eids = Stats.instance().get_matching_noops(runmode, ds.shape)
+        for disk in disksizes:
+            qs = get_qs()                
+            runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+            print runtype, disk
+
+            if bmodel:
+
+                run_model(ds, runmode, runtype, disk, runcost, eids)
+            else:
+                run(ds, runmode, runtype, disk, runcost, eids)
+                for x in run_qs(w, get_qs(), bmodel):
+                    print x
+                print
+
+    def run_normal(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
+        runtype = set_strat()
+        print runtype
+
+        if bmodel:
+            run_model(ds, runmode, runtype)
+        else:
+            run(ds, runmode, runtype)        
+            if runtype in ('noop', 'stats'):
+                return
+            for x in run_qs(w, get_qs(), bmodel):
+                print x
+            print
 
 
 
     for set_strat in get_strats():
         try:
             runtype = set_strat()
-            print runtype
+            run_all = run_normal
         except:
-            basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
-            disksizes = [0, 0.01, 0.1, 1, 10]
-            runcost = 100
-            eids = Stats.instance().get_matching_noops(runmode, ds.shape)
-            for disk in disksizes:
-                qs = get_qs()                
-                runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+            run_all = run_opt
 
-                print runtype, disk
-                run(ds, runmode, runtype, disk, runcost, eids)
-                for x in run_qs(w, get_qs()):
-                    print x
-                print
-            continue
-        run(ds, runmode, runtype)
-
-        if runtype in ('noop', 'stats'):
-            continue
-        for x in run_qs(w, get_qs()):
-            print x
-        print
-
-                
-
-
-    
-
-
-    
+        run_all(ds, runmode, runtype, set_strat, get_qs, bmodel)

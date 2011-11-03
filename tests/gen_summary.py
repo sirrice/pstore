@@ -31,7 +31,8 @@ ALLPATHS = "SELECT rowid, (rowid-1) % 7, 0, 0 FROM pq where pq.eid = ? order by 
 PATH = """SELECT opid FROM iq WHERE iq.pqid = ? order by iq.rowid"""
 
 #stats = Stats.instance('./outputs/sep_28/stats.db')
-stats = Stats.instance('./_output/pablostats.db')
+#stats = Stats.instance('./_output/pablostats.db')
+stats = Stats.instance('./_output/stats.db')
 conn = stats.conn
 cur = conn.cursor()
 
@@ -39,7 +40,9 @@ cur = conn.cursor()
 
 def get_plot(runmode):
     # get all the experiments
-    cur.execute("select rowid, runmode, runtype, width, height, diskconstraint, runconstraint from exec where runmode = ? and runtype != 'noop'  order by rowid, diskconstraint", (runmode,))
+    cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
+                from exec where runmode = ? and runtype not in ('noop', 'noop_model') and runtype = 'stats'
+                order by rowid, diskconstraint""", (runmode,))
     title = 'runmode%d' % runmode
     features = ['overhead', 'disk']#, 'fcost', 'bcost']
     exps = cur.fetchall()
@@ -68,8 +71,7 @@ def get_plot(runmode):
         ymax = max(ymax, overhead/opcost, disk)
 
 
-    print table
-    draw(ymax*1.2, ['overhead','disk'], table, labels, '%s_overhead' % title,
+    draw(ymax * 1.2, ['overhead','disk'], table, labels, '%s_overhead' % title,
          'X times baseline', plotargs={'yscale':'linear'})
 
 
@@ -125,7 +127,7 @@ def get_plot(runmode):
             ymax = max(ymax, cost)
 
     #features = sorted(['query-%s' % v for v in allpaths.values()])
-    draw(2, sorted(allpaths.values()), table, labels, '%s_qcosts' % title, 'querycost',
+    draw(ymax*1.2, sorted(allpaths.values()), table, labels, '%s_qcosts' % title, 'querycost',
          plotargs={'yscale':'linear'})
     return
     # get strategies
