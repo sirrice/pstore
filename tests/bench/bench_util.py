@@ -86,6 +86,16 @@ class BenchOp(Op):
         
         ingen = inter_to_inlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
         outgen = inter_to_outlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
+        start = time.time()
+        for incoords, outcoords in zip(ingen, outgen):
+            pass
+        gencost = time.time() - start
+        
+
+
+        ingen = inter_to_inlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
+        outgen = inter_to_outlist(arr, self.noutput, self.fanin, self.oclustsize, self.density)
+        
 
         if pstore.uses_mode( Mode.PTR ):
             for incoords, outcoords in zip(ingen, outgen):
@@ -95,7 +105,7 @@ class BenchOp(Op):
                 pstore.write(outcoords, '')
 
         pstore.close()
-        return pstore
+        return pstore, gencost
 
     def fmap_obj(self, obj, run_id, arridx):
         return obj[0]
@@ -322,7 +332,7 @@ def inter_to_inlist(arr, noutput, fanin, oclustsize, iareasize):
     insize = map(max, zip(insize, [1]*len(insize)))
 
     for intercoord in intercoords:
-        intercoord = tuple(intercoord)
+        intercoord = map(int, tuple(intercoord))
         ur = map(sum, zip(insize, intercoord))
         overflow = [max(0, v-bound) for v, bound in zip(ur, arr.shape)]
         ur = map(min, zip(ur, arr.shape))
@@ -346,6 +356,7 @@ def inter_to_outlist(arr, noutput, fanin, oclustsize, iareasize):
     outsize = [int(math.ceil(math.pow(oclustsize, 0.5)))] * 2
 
     for intercoord in intercoords:
+        intercoord = map(int, intercoord)
         coords = sample(intercoord, map(sum, zip(outsize, intercoord)), oclustsize, rand=r)
         yield coords
 

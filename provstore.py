@@ -89,6 +89,11 @@ class IPstore(object):
     def get_stat(self, attr, default=0):
         return self.stats.get(attr, default)
 
+    def inc_stat(self, attr, val):
+        if attr not in self.stats:
+            self.stats[attr] = 0.0
+        self.stats[attr] += val            
+
     def uses_mode(self, mode):
         return mode in self.strat.modes()
 
@@ -197,7 +202,6 @@ class StatPStore(IPstore):
         if self.nsampled > 10 and random.random() < 0.9:
             self.nskipped += 1
             return
-
         self.update_stats(outcoords, *incoords_arr)
         self.nsampled += 1
 
@@ -383,6 +387,7 @@ class DiskStore(IPstore):
             self._serialize(data, ser_coords, Spec.COORD_MANY)
             ser_coords = ser_coords.getvalue()
             ser_key = 'key:%s' % str(hash(ser_coords))     # poor man's key gen
+
             self.bdb[ser_key] = ser_coords
             s = struct.pack("I%ds" % (len(ser_key)), len(ser_key), ser_key)
             buf.write(s)
@@ -629,6 +634,7 @@ class PStore3(DiskStore):
     def write(self, outcoords, *incoords_arr):
         self.update_stats(outcoords, *incoords_arr)
 
+        start = time.time()
         val = StringIO()
         if Spec.BOX == self.spec.payload:
             boxes = map(bbox, incoords_arr)
@@ -639,8 +645,10 @@ class PStore3(DiskStore):
                 encs = map(lambda coord: self.enc_in(coord, arridx), incoords)
                 self._serialize(encs, val, self.spec.payload)
         val = val.getvalue()
+        self.inc_stat('serin', time.time() - start)
 
 
+        ostart = time.time()
         if Spec.COORD_ONE == self.spec.outcoords:
             try:
                 enc_outcoords = map(self.enc_out, outcoords)
@@ -653,7 +661,9 @@ class PStore3(DiskStore):
                 self._serialize((enc,), key, self.spec.outcoords)
                 keystr = key.getvalue()
                 if keystr not in self.bdb:
+                    start = time.time()
                     self.bdb[keystr] = val
+                    self.inc_stat('bdb', time.time() - start)
                 else:
                     # fuck, need to add provenance to existing data in the bdb
                     if Spec.BOX == self.spec.payload:
@@ -673,19 +683,25 @@ class PStore3(DiskStore):
                         self._serialize(encs, newval, self.spec.payload)
                     newval = newval.getvalue()
 
+                    start = time.time()
                     self.bdb[keystr] = newval
+                    self.inc_stat('bdb', time.time() - start)
         elif Spec.BOX == self.spec.outcoords:
             key = StringIO()
             self._serialize(bbox(outcoords), key, Spec.BOX)
+            start = time.time()
             self.bdb[key.getvalue()] = val
+            self.inc_stat('bdb', time.time() - start)
         else:
             enc_outcoords = map(self.enc_out, outcoords)
             key = StringIO()
             self._serialize(enc_outcoords, key, self.spec.outcoords)
             key = key.getvalue()
+            start = time.time()
             self.bdb[key] = val
+            self.inc_stat('bdb', time.time() - start)
             
-
+        self.inc_stat('serout', time.time() - ostart)
 
 
 
@@ -800,7 +816,7 @@ class PStore3Box(IBox,PStore3):
         super(PStore3Box, self).__init__(*args, **kwargs)
 
     def uses_mode(self, mode):
-        return mode in ( Mode.BOX, Mode.PTR )
+        return mode == Mode.PTR 
 
 
 
@@ -1099,50 +1115,6 @@ class CompositePStore(IPstore):
 
 
 if __name__ == '__main__':
-    from op import *
-    from cStringIO import StringIO
-    import timeit
-    class BenchOp(Op):
-        class Wrapper(object):
-            def __init__(self, shape):
-                self.nargs = 1
-                self.shape = shape
-                self._arr = None
-
-            def get_input_shapes(self, run_id):
-                return [self.shape]
-
-            def get_input_shape(self, run_id, arridx):
-                return self.shape
-
-            def get_inputs(self, run_id):
-                return [self._arr]
-
-
-        def __init__(self, shape):
-            super(BenchOp, self).__init__()
-            self.wrapper = BenchOp.Wrapper(shape)
-            self.workflow = None
-
-        def run(self, inputs, run_id):
-            pass
-
-        def output_shape(self, run_id):
-            return (100,100)
-
-
-    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True)
-
-    op = BenchOp((100,100))
-    
-
-    all_coords = []
-    for n in [1, 10, 1000]:
-        coords = [(i / 100, i % 100) for i in xrange(n)]
-        all_coords.append(coords)
-
-    Runtime.instance().set_strategy(op, strat)
-    pstore = op.pstore(1)
 
     def ser(pstore, coords, spec):
         buf = StringIO()        

@@ -42,16 +42,23 @@ def run_op(arr, strat, noutput, fanin, oclustsize, density):
         Runtime.instance().set_strategy(op, strat)
         start = time.time()
         op.wrapper._arr = arr
-        pstore = op.run([arr], i)
+        pstore, gencost = op.run([arr], i)
         opcost = (time.time() - start) - pstore.get_stat('write', 0)
         
 
         if i == 0: continue
-        runcosts = (pstore.get_stat('_serialize',0) + pstore.get_stat('_parse',0) ,
-                    pstore.get_stat('write', 0) / pstore.nsampled / (fanin + oclustsize), 
-                    pstore.get_stat('write', -1) + pstore.get_stat('close', 0),
-                    opcost,
-                    pstore.disk())
+        updatecost = pstore.get_stat('update_stats', 0)
+        bdbcost = pstore.get_stat('bdb', 0)
+        serin = pstore.get_stat('serin', 0)
+        serout = pstore.get_stat('serout', 0)
+        ser = pstore.get_stat('_serialize', 0)
+        wcost = pstore.get_stat('write', 0)
+        runcosts = (ser, wcost, gencost, updatecost, bdbcost, serin, serout)
+        # runcosts = (ser,
+        #             pstore.get_stat('write', 0) / pstore.nsampled / (fanin + oclustsize), 
+        #             pstore.get_stat('write', -1) + pstore.get_stat('close', 0),
+        #             opcost,
+        #             pstore.disk())
         writecosts.append(runcosts)
     writecosts = map(numpy.mean, zip(*writecosts))
     return pstore, writecosts
@@ -77,6 +84,7 @@ def run_qs(rpstore, arr, strat, noutput, fanin, oclustsize, density, backward=Tr
     
 
 def printit(params, wcosts, rcosts):
+    rcosts = []
     pstr = '\t'.join(map(str, params))
     wstr = '\t'.join(map(lambda x: '%f'%x, tuple(wcosts)))
     rstr = '\t'.join(map(lambda x: '%f'%x, tuple(rcosts)))
@@ -127,6 +135,7 @@ args:
     strat, noutput, fanin, oclustsize, density = None, 100, 5,5, 1.0
     fanins = [1,25,64,100,169]
     oclustsizes = [1,25,64,100]
+    densities = [0.01, 0.1, 0.5, 0.9]
     noutputs = [1000]
 
 
@@ -151,6 +160,8 @@ args:
     #fanins = [1, 10]
     #oclustsizes = [1, 50, 100]
     #strats = [Strat.stat()]
+    fanins = [1, 10]
+    densities = []
     for noutput in noutputs:
         for strat in strats:
             for fanin in fanins:
@@ -165,7 +176,7 @@ args:
                         del arr
 
             fanin, oclustsize = 100, 100
-            for density in [0.01, 0.1, 0.5, 0.9]:
+            for density in densities:
                 arr = gen_interarr(emptyarr, noutput, fanin, oclustsize, density)
                 wcosts, rcosts = experiment(arr, strat, noutput, fanin, oclustsize, density)
                 params = (strat, fanin, oclustsize, density, noutput, 10)
