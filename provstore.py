@@ -43,6 +43,28 @@ def bbox(coords):
 
     return (minc, maxc)
 
+def gengrid(coords):
+    """
+    @return (box, negs)
+    box: bounding box containing the coordinates
+    negs: encoded list of coords not in bounding box
+    """
+    box = bbox(coords)
+    shape = (1+box[1][0]-box[0][0], 1+box[1][1]-box[0][1])
+    arr = np.ones(shape, dtype=bool)
+    newcoords = map(lambda coord: (coord[0]-box[0][0], coord[1]-box[0][1]), coords)
+    arr[zip(*newcoords)] = False
+    encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
+    return (box, encs)
+
+def decgrid(box, negs):
+    shape = ( 1+box[1][0]-box[0][0], 1+box[1][1]-box[0][1] )
+    arr = np.ones(shape, dtype=bool)
+    arr[zip(*map(lambda enc: dec(enc, shape), negs))] = False
+    return map(lambda coord: (coord[0]+box[0][0], coord[1]+box[0][1]), np.argwhere(arr))
+
+    
+
 def in_box(incoord, box):
     if not box[0]: return False
     return reduce(and_, [box[0][dim] <= incoord[dim] and
@@ -59,6 +81,22 @@ def instrument(fn):
             self.stats[func_name] = 0
         self.stats[func_name] += (time.time() - start)
         return ret
+    return w
+
+def alltoall(fn):
+    def w(self, left, arridx, backward=True):
+        
+        if backward:
+            shape = self.outshape
+        else:
+            shape = self.inshapes[arridx]
+        maxcells = reduce(mul, shape)
+
+        if not self.op.alltoall(arridx) or len(left) < maxcells:
+            return fn(self, left, arridx, backward=backward)
+        if backward:
+            return AllToAllScan(self.inshapes[arridx])
+        return AllToAllScan(self.outshape)
     return w
 
 
@@ -245,6 +283,7 @@ class PStore1(IPstore):
     def extract_box(self, obj, arridx):
         return self.op.bbox(obj[0][0], self.run_id, arridx)
 
+    @alltoall
     def join(self, left, arridx, backward=True):
         """
         returns a generator that yields coordinates
@@ -289,10 +328,16 @@ class DiskStore(IPstore):
             ser_vals = self.bdb[ser_key]
             vals = self._parse(StringIO(ser_vals), Spec.COORD_MANY)
             return vals
+        elif self.spec.outcoords == Spec.GRID:
+            box, negs = obj[0]
+            return map(self.enc_out, decgrid(box, negs))
+            
         ret = self._parse(StringIO(obj[0]), self.spec.outcoords)
         return ret
 
     def extract_outcells(self, obj):
+        if self.spec.outcoords == Spec.GRID:
+            return decgrid(obj[0][0], obj[0][1])
         return map(self.dec_out, self.extract_outcells_enc(obj))
 
 
@@ -311,6 +356,12 @@ class DiskStore(IPstore):
             ret = []
             for ser_key in parsed:
                 encs = self._parse(StringIO(self.bdb[ser_key]), Spec.COORD_MANY)
+                ret.append(encs)
+            return ret
+        elif Spec.GRID == self.spec.payload:
+            ret = []
+            for box, negs in parsed:
+                encs = map(lambda coord: self.enc_in(coord, len(ret)), decgrid(box, negs))
                 ret.append(encs)
             return ret
         elif Spec.is_coord(self.spec.payload):
@@ -333,11 +384,18 @@ class DiskStore(IPstore):
             ser_encs = self.bdb[ser_key]
             encs = self._parse(StringIO(ser_encs), Spec.COORD_MANY)
             return encs
+        elif Spec.GRID == self.spec.payload:
+            box, negs = val
+            return map(lambda coord: self.enc_in(coord, arridx), decgrid(box, negs))
         elif Spec.is_coord(self.spec.payload):
             return val
         raise RuntimeError
 
     def extract_incells(self, obj, arridx):
+        if Spec.GRID == self.spec.payload:
+            buf = StringIO(obj[1])
+            grid, negs = self._parse(buf, Spec.GRID)
+            return decgrid(grid, negs)
         return map(lambda val: self.dec_in(val, arridx),
                    self.extract_incells_enc(obj, arridx))
 
@@ -378,10 +436,13 @@ class DiskStore(IPstore):
             n = len(coords)
             s = struct.pack("I%dI" % n, n, *coords)
             buf.write(s)
-            
         elif mode == Spec.BOX:
             box = data
             buf.write(struct.pack("4I", box[0][0], box[0][1], box[1][0], box[1][1]))
+        elif mode == Spec.GRID:
+            box, encs = data
+            self._serialize(box, buf, Spec.BOX)
+            self._serialize(encs, buf, Spec.COORD_MANY)
         elif mode == Spec.KEY:
             ser_coords = StringIO()
             self._serialize(data, ser_coords, Spec.COORD_MANY)
@@ -413,6 +474,8 @@ class DiskStore(IPstore):
             return (struct.unpack("2I", buf.read(8)), struct.unpack("2I", buf.read(8)))
             vals = struct.unpack("4I", buf.read(4*4))
             return (vals[:2],vals[2:])
+        elif mode == Spec.GRID:
+            return self._parse(buf, Spec.BOX), self._parse(buf, Spec.COORD_MANY)
         elif mode == Spec.KEY:
             n, = struct.unpack("I", buf.read(4))
             ser_key, = struct.unpack("%ds" % n, buf.read(n))
@@ -423,6 +486,7 @@ class DiskStore(IPstore):
         elif mode == Spec.NONE:
             return None
 
+    @alltoall
     def join(self, left, arridx, backward=True):
         self.open()
         if backward and self.spec.outcoords == Spec.COORD_ONE:
@@ -559,13 +623,13 @@ class PStore2(DiskStore):
         outarea = reduce(mul, diff(outbox))
         noutcells = len(outcoords)
 
-        fanins = []
-        inareas = []
-        for arridx in xrange(self.nargs):
-            incells = map(tuple, self.op.bmap_obj((outcoords, payload), self.run_id, arridx))
-            box = bbox(incells)
-            inareas.append(reduce(mul, diff(box)))
-            fanins.append(len(incells))
+        fanins = [1] * self.nargs
+        inareas = [1] * self.nargs
+        # for arridx in xrange(self.nargs):
+        #     incells = map(tuple, self.op.bmap_obj((outcoords, payload), self.run_id, arridx))
+        #     box = bbox(incells)
+        #     inareas.append(reduce(mul, diff(box)))
+        #     fanins.append(len(incells))
 
         self.outarea += outarea
         self.inareas = map(sum, zip(self.inareas, inareas))
@@ -601,8 +665,15 @@ class PStore2(DiskStore):
     @instrument
     def write(self, outcoords, payload):
         self.update_stats(outcoords, payload)
-        key, val = self.get_key(outcoords), self.get_val(payload)
+        start = time.time()
+        key = self.get_key(outcoords)
+        self.inc_stat('serout', time.time() - start)
+        start = time.time()
+        val = self.get_val(payload)
+        self.inc_stat('serin', time.time() - start)
+        start = time.time()
         self.bdb[key] = val
+        self.inc_stat('bdb', time.time() - start)
 
             
 class PStore3(DiskStore):
@@ -640,6 +711,10 @@ class PStore3(DiskStore):
             boxes = map(bbox, incoords_arr)
             for box in boxes:
                 self._serialize(box, val, Spec.BOX)
+        elif Spec.GRID == self.spec.payload:
+            grids = map(gengrid, incoords_arr)
+            for grid in grids:
+                self._serialize(grid, val, Spec.GRID)
         else:
             for arridx, incoords in enumerate(incoords_arr):
                 encs = map(lambda coord: self.enc_in(coord, arridx), incoords)
@@ -753,7 +828,7 @@ class IBox(object):
             yield coord
         
 
-    
+    @alltoall
     def join(self, left, arridx, backward=True):
         self.open()
         if backward and self.spec.outcoords == Spec.COORD_ONE:
@@ -838,7 +913,8 @@ class PStoreQuery(IBox,PStore1):
     @instrument
     def write(self, outcoords, *incoords_arr):
         pass
-    
+
+    @alltoall
     def join(self, left, arridx, backward=True):
         self.open()
         inputs = self.op.wrapper.get_inputs(self.run_id)
@@ -884,7 +960,8 @@ def create_ftype(ptype):
         def write(self, outcoords, *incoords_arr):
             for pstore, incoords in zip(self.pstores, incoords_arr):
                 pstore.write(incoords, outcoords)
-    
+
+        @alltoall
         def join(self, left, arridx, backward=True):
             return self.pstores[arridx].join(left, 0, not backward)
 
@@ -934,6 +1011,7 @@ def create_ftype(ptype):
             newincoords = self.compress_incoords_arr(incoords_arr)
             self.pstore.write(newincoords, outcoords)
 
+        @alltoall
         def join(self, left, arridx, backward=True):
             shape = self.inshapes[arridx]
 
@@ -995,6 +1073,7 @@ class MultiPStore(IPstore):
             for pstore in self.ptr_stores:
                 pstore.write(outcoords, *incoords_arr)
 
+    @alltoall
     def join(self, left, arridx, backward=True):
         if backward:
             return self.bpstore.join(left, arridx, backward=backward)
@@ -1095,6 +1174,7 @@ class CompositePStore(IPstore):
         else:
             self.pstore3.write(outcoords, *args)
 
+    @alltoall
     def join(self, left, arridx, backward=True):
         self.open()
         for pstore in self.pstores:

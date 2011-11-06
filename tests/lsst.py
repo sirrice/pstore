@@ -67,6 +67,7 @@ class MergeSingleVal(Op):
         return output, {'provoverhead' : (end-start)}
 
     def alltoall(self, arridx):
+        return True
         return arridx == 1
         
     def output_shape(self, run_id):
@@ -110,9 +111,6 @@ class LogicalAnd(Merge):
             return (a and b) and 1 or 0
         super(LogicalAnd, self).__init__(f)#lambda pair: (pair[0] and pair[1] and 1) or 0)
 
-class Diff(Merge):
-    def __init__(self):
-        super(Diff, self).__init__(lambda a,b: a-b)
 
 
 class Div(Merge):
@@ -162,6 +160,9 @@ class Convolve(Op):
         output = np.empty(arr.shape, float)
         ndimage.convolve(arr, kernel, output=output, mode='constant', cval=0.0)
         return output, {'provoverhead' : end - start}
+
+    def alltoall(self, arridx):
+        return True
 
     def supported_modes(self):
         return [Mode.FULL_MAPFUNC, Mode.PT_MAPFUNC, Mode.PTR]
@@ -274,7 +275,7 @@ class Cluster(Op):
 
     def supported_modes(self):
         return [Mode.PT_MAPFUNC, Mode.PTR]
-                
+
     def fix(self, fixups, oid):
         if oid not in fixups: return oid
         if not fixups[oid]: return oid
@@ -496,6 +497,9 @@ class CRDetect(Op):
         #    raise RuntimeError, "I want even image shapes !"
         return self.rebin(a, inshape/2)
 
+    def alltoall(self, arridx):
+        return arridx == 0
+
     def can_box(self):
         return True
 
@@ -627,6 +631,9 @@ class RemoveCRs(Op):
 
         return cleanarray, {'provoverhead' : provoverhead}
 
+
+    def alltoall(self, arridx):
+        return True
 
     def output_shape(self, run_id):
         return self.wrapper.get_input_shape(run_id,0)

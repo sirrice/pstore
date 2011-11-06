@@ -11,6 +11,7 @@ from arraystore import ArrayStore
 import matplotlib.pyplot as plt
 import matplotlib
 from matplotlib.font_manager import FontProperties
+from random import randint
 
 
 import numpy as np
@@ -68,24 +69,34 @@ def run_exp(db, strats, fanins, fanouts, noutput):
         db.rollback()
     cur.close()
     cur = db.cursor()
-    
+
     for strat in strats:
         Runtime.instance().set_strategy(op, strat)
         for fanin in fanins:
             for fanout in fanouts:
+                side = int(math.ceil(math.pow(float(fanin), 0.5))) 
                 prov = []
                 incoords = []
                 outcoords = []
                 fanin_n = 0
                 for n in xrange(noutput):
                     outcoords.append((n / 100, n % 100))
-                    for i in xrange(fanin): 
-                        incoords.append((fanin_n / 100, fanin_n % 100))
-                    if n % fanout == 0:
+                    if outcoords >= fanout:
+                        ptx, pty = randint(0, 99-side), randint(0, 99-side)
+                        for i in xrange(fanin):
+                            incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )
+                            #incoords.append((fanin_n / 100, fanin_n % 100))
+                            fanin_n += 1
                         prov.append((outcoords, incoords))
                         outcoords = []
                         incoords = []
                 if len(outcoords) > 0:
+                    ptx, pty = randint(0, 99-side), randint(0, 99-side)
+                    for i in xrange(fanin):
+                        incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )                        
+                        #incoords.append( (random.randint(0, 99), random.randint(0, 99)) )
+                        #incoords.append((fanin_n / 100, fanin_n % 100))
+                        fanin_n += 1
                     prov.append((outcoords, incoords))
                     outcoords = []
                 
@@ -95,7 +106,11 @@ def run_exp(db, strats, fanins, fanouts, noutput):
                     pstore = op.pstore(runid)
                     runid += 1
                     for outcoords, incoords in prov:
-                        pstore.write(outcoords, incoords)
+                        if pstore.uses_mode(Mode.PTR):
+                            pstore.write(outcoords, incoords)
+                        else:
+                            pstore.write(outcoords, 's' * 10)
+                                
                         updatecost = pstore.get_stat('update_stats', 0)
                         bdbcost = pstore.get_stat('bdb', 0)
                         serin = pstore.get_stat('serin', 0)
@@ -167,9 +182,10 @@ def stacked(db, strat, labels, fanin):
     cur = db.cursor()
     xs = set()
     ys = {}
-    
+
     for label in labels:
         cur.execute("select fanout, %s from stats where fanin = ? and strat = ? order by fanout" % label, (fanin, strat))
+#        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
         ys[label] = {}
         for row in cur.fetchall():
             fanout, y = row
@@ -199,13 +215,14 @@ def stacked(db, strat, labels, fanin):
     ax.set_ylabel(strat)
     ax.set_xlabel('fanout')
     ax.set_title("%s      fanin = %s" % (strat, fanin))
-    plt.savefig('_figs/microperstrat/%s.png' % '%d_%s' % (fanin, strat), format='png')
+    plt.savefig('_figs/microperstrat/%s.png' % '%s_%s' % (strat, fanin), format='png')
     plt.cla()
     plt.clf()
     cur.close()
 
 
 def fit(db, attr, f):
+    print "====%s====" % attr
     cur = db.cursor()
     xs = set()
     ys = {}
@@ -243,11 +260,15 @@ def viz(db, fanins):
             draw(db, label, fanin)
 
 def stackviz(db, strats, fanins):
+    
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin','serout',
-              'serin+serout-bdbcost-ser', 'serout-bdbcost')
+              'serout-bdbcost', 'disk/1048576.0')
     for strat in strats:
         for fanin in fanins:
-            stacked(db, str(strat), labels, fanin)
+            try:
+                stacked(db, str(strat), labels, fanin)
+            except:
+                pass
 
 
 
@@ -273,45 +294,30 @@ if __name__ == '__main__':
     
     db = sqlite3.connect('./_output/pstore_microbench.db')
     
-    def fgen(f):
-        def _f(xs, a, b):
-            res = []
-            for row in xs:
-                fanout, fanin = row[0], row[1]
-                res.append(f(fanout, fanin, a, b))
-            return res
-        return _f
-    def f1(fanout, fanin, a, b):
-        return a * (1000 / fanout) * fanin + b * 1000
-    def f2(fanout, fanin, a, b):
-        return a * fanout * fanin + b * 1000
-
-    
-    #fit(db, 'serin', fgen(f1))
-    fit(db, 'bdbcost', fgen(f1))
-    fit(db, 'bdbcost', fgen(f2))
-    #fit(db, 'updatecost', fgen(f1))        
-
-    exit()
 
     strats = [
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+
+        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
+        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
         
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
         ]
 
     noutput = 1000
     fanins = [1,10,25,50,100,200]
     fanouts = [1,10,25,50,100,150,200,250,1000]
-    fanins = [50, 100, 200]
+    fanins = [1, 10, 50, 100, 200]
     if len(sys.argv) <= 1:
         print "python pstore_micro.py [run | viz | all]"
         exit()
@@ -322,7 +328,38 @@ if __name__ == '__main__':
         viz(db, fanins)
     if mode in ( 'stack', 'all'):            
         stackviz(db, strats, fanins)
+    if mode in ( 'fit', 'all' ):
+        def fgen(f):
+            def _f(xs, a,b,c):
+                res = []
+                for row in xs:
+                    fanout, fanin = row[0], row[1]
+                    res.append(f(fanout, fanin, a,b,c))
+                return res
+            return _f
+        def f1(fanout, fanin, a, b, c, d):
+            return a * (1000 / fanout) * fanin + b * 1000
+        def f2(fanout, fanin, a, b, c, d):
+            return a * fanout * fanin + b * 1000
+        def f3(fanout, fanin, a, b, c):
+            return a * 1000 * fanin / math.pow(fanout, b) + c
+            return (1000 / fanout) * (a * fanin + b * fanout ) + c + d
+            return a * fanout * fanin + b * fanout + c * fanin + d
+        def f4(fanout, fanin, a,b,c):
+            # per entry overhead
+#            return 1000 / fanout * (a + b * fanin)
+            return (1000 / fanout) * (a + fanin * b) + c * 1000
+            return (1000 / fanout) * (a ) * fanin
+            disk = (fanout * 4.25 + fanout * fanin * 4.25) * (1000 / fanout)
+            return ( 1000 / fanout ) * ( fanout * a + fanout * fanin
+    +b) + c * disk
+
     
+        fit(db, 'bdbcost', fgen(f4))
+        # fit(db, 'serin', fgen(f1))
+        # fit(db, 'bdbcost', fgen(f1))
+        #fit(db, 'bdbcost', fgen(f2))
+        #fit(db, 'updatecost', fgen(f3))        
 
 
     db.close()

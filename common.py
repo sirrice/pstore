@@ -66,6 +66,9 @@ class OneToOne(Op):
 
         return output, {'provoverhead' : end-start}
 
+    def alltoall(self, arridx):
+        return True
+
     def output_shape(self, run_id):
         return self.wrapper.get_input_shape(run_id, 0)
 
@@ -210,6 +213,9 @@ class Merge(Op):
         end = time.time()
         return output, {'provoverhead' : (end-start)}
 
+    def alltoall(self, arridx):
+        return True
+
     def output_shape(self, run_id):
         return self.wrapper.get_input_shape(run_id,0)
 
@@ -222,6 +228,9 @@ class Merge(Op):
     def bmap(self, coord, run_id, arridx):
         return (tuple(coord),)
 
+class Diff(Merge):
+    def __init__(self):
+        super(Diff, self).__init__(lambda a,b: a-b)
 
 
 

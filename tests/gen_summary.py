@@ -32,7 +32,8 @@ PATH = """SELECT opid FROM iq WHERE iq.pqid = ? order by iq.rowid"""
 
 #stats = Stats.instance('./outputs/sep_28/stats.db')
 #stats = Stats.instance('./_output/pablostats.db')
-stats = Stats.instance('./_output/stats.db')
+#stats = Stats.instance('./_output/stats.db')
+stats = Stats.instance('./_output/lsstfull.db')
 conn = stats.conn
 cur = conn.cursor()
 
@@ -41,7 +42,7 @@ cur = conn.cursor()
 def get_plot(runmode):
     # get all the experiments
     cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
-                from exec where runmode = ? and runtype not in ('noop', 'noop_model') and runtype = 'stats'
+                from exec where runmode = ? and runtype not in ('noop', 'noop_model')
                 order by rowid, diskconstraint""", (runmode,))
     title = 'runmode%d' % runmode
     features = ['overhead', 'disk']#, 'fcost', 'bcost']

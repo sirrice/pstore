@@ -286,6 +286,19 @@ class Scan(Query):
     def __iter__(self):
         return iter(self.child)
 
+class AllToAllScan(Query):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def __len__(self):
+        return reduce(mul, self.shape)
+
+    def close(self):
+        return
+
+    def __iter__(self):
+        return ((x,y) for x in xrange(self.shape[0]) for y in xrange(self.shape[1]))
+
 class DedupQuery(Query):
     """
     De-duplication operator.  Sucks data from the child iterator into
@@ -296,11 +309,16 @@ class DedupQuery(Query):
             if not hasattr(child, 'shape'): raise RuntimeError
             shape = child.shape
         super(DedupQuery, self).__init__(None, child, -1, shape)
-        if reduce(mul, self.shape) > 1000000:
-            self.pqres = PQDenseResult(self.shape)
+        self.alltoall = False
+        if isinstance(child, AllToAllScan):
+            self.pqres = None
+            self.alltoall = True
         else:
-            self.pqres = PQSparseResult(self.shape)
-        self.load()
+            if reduce(mul, self.shape) > 1000000:
+                self.pqres = PQDenseResult(self.shape)
+            else:
+                self.pqres = PQSparseResult(self.shape)
+            self.load()
 
     def load(self):
         nseen = 1
@@ -318,6 +336,8 @@ class DedupQuery(Query):
         self.child.close()
 
     def __len__(self):
+        if self.alltoall:
+            return reduce(mul, self.shape)
         return len(self.pqres)
 
     def close(self):
@@ -325,6 +345,8 @@ class DedupQuery(Query):
         self.pqres = None
 
     def __iter__(self):
+        if self.alltoall:
+            return iter(self.child)
         return iter(self.pqres)
 
 

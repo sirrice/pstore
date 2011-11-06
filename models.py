@@ -59,31 +59,46 @@ def disk_model_desc(desc, fanin, fanout, density, noutput):
     disk = 0
 
     if desc.backward:
+        disk = fanout * 4.25
         if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            disk = fanout * 4.25 + fanout * fanin * 4.25
+            disk += fanout * fanin * 4.25
         elif spec == (Spec.COORD_ONE, Spec.KEY):
-            disk = fanout * 4.25 + fanin * 4.25 + fanout * 28 + 28
+            disk += fanin * 4.25 + fanout * 28 + 28
         elif spec == (Spec.COORD_ONE, Spec.BOX):
-            disk = fanout * (4.25 + 16)
+            disk += fanout * 16
         elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            disk = fanout * 4.25 + fanin * 4.25
+            disk += fanin * 4.25
         elif spec == (Spec.COORD_MANY, Spec.KEY):
-            disk = fanout * 4.25 + fanin * 4.25 + 28 * 2
+            disk += fanin * 4.25 + 28 * 2
         elif spec == (Spec.COORD_MANY, Spec.BOX):
-            disk = fanout * 4.25 + 16
+            disk += 16
+        elif spec == (Spec.COORD_MANY, Spec.GRID):
+            nnegs = fanin / density * (1.0 - density)
+            disk += 16 + nnegs * 4.25
+        elif spec == (Spec.COORD_ONE, Spec.GRID):
+            nnegs = fanin / density * (1.0 - density)
+            disk += fanout * (16 + nnegs * 4.25)
+            
     else:
+        disk = fanin * 4.25
         if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            disk = fanin * 4.25 + fanout * fanin * 4.25
+            disk += fanout * fanin * 4.25
         elif spec == (Spec.COORD_ONE, Spec.KEY):
-            disk = fanin * 4.25 + fanout * 4.25 + fanin * 28 + 28
+            disk += fanout * 4.25 + fanin * 28 + 28
         elif spec == (Spec.COORD_ONE, Spec.BOX):
-            disk = fanin * (4.25 + 16)
+            disk += fanin * 16
         elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            disk = fanin * 4.25 + fanout * 4.25
+            disk += fanout * 4.25
         elif spec == (Spec.COORD_MANY, Spec.KEY):
-            disk = fanin * 4.25 + fanout * 4.25 + 28 * 2
+            disk += fanout * 4.25 + 28 * 2
         elif spec == (Spec.COORD_MANY, Spec.BOX):
-            disk = fanin * 4.25 + 16
+            disk += 16
+        elif spec == (Spec.COORD_MANY, Spec.GRID):
+            nnegs = fanout / density * (1.0 - density)
+            disk += 16 + nnegs * 4.25
+        elif spec == (Spec.COORD_ONE, Spec.GRID):
+            nnegs = fanout / density * (1.0 - density)
+            disk += fanin * (16 + nnegs * 4.25)
 
     return int( math.ceil(disk * ncalls / 4096.0) * 4096 ) #+ ncalls * 312 + 12288
 

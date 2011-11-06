@@ -10,13 +10,7 @@ if __name__ == '__main__':
     logging.basicConfig()
     mlog.setLevel(logging.INFO)
 
-
-    runtype = sys.argv[1]
-    runtypes = ['box', 'bulk', 'set', 'grid', 'test', 'query', 'sql', 'run',
-                'noop', 'super', 'sbox', 'squery']
-    if runtype not in runtypes:
-        print "%s is not a recognized runtype" % runtype
-        exit()
+    Stats.instance('_output/execsmall.db')
 
     runmode = -1
             
@@ -30,17 +24,19 @@ if __name__ == '__main__':
         w.add_static_input(conv, 1, kernel)
         w.add_static_input(clus, 1, threshold)
         w.run()
+        
         #Runtime.instance().set_exec_mode(Runtime.NORMAL)
         print
         runid = w._runid-1
 
+
         queries = []
         queries.append([[(0,3)], runid, [(clus,0)]])
+        queries.append([[(0,3)], runid, [(mean,0), (diff, 0), (conv, 0)]])
         queries.append([[(0,3)], runid, [(mean,0), (diff,0), (conv,0), (clus,0)]])
         queries.append([[(3,3)], runid, [(mean,0), (diff,0), (conv,0), (clus,0)]])
         for q in queries:
             print len( w.forward_path(*q))
-
         output = clus.wrapper.get_output(runid)
         indices = np.argwhere(output)
         print len(w.backward_path([ indices[0] ], runid, [(clus,0)]))
@@ -64,11 +60,23 @@ if __name__ == '__main__':
     w.connect(conv, clus, 0)
 
     w.default_strategy()
-    #strat = Strategy.from_str(runtype)
-    # Runtime.instance().set_strategy(clus, strat)
+    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True)
+    print strat
+    Runtime.instance().set_strategy(clus, strat)
 
     img = numpy.array([[0,0,1,1],
                        [0,0,0,1],
                        [1,0,0,0],
                        [1,1,0,0]], dtype=np.float)
+    img = numpy.zeros((500,500), dtype=float)
+    for i in xrange(50):
+        for j in xrange(50):
+            img[i,j] = 1
+        
+
+    Stats.instance().add_exec(10, 10,
+                              runmode, 'grid', '_output', "lsst_grid")
+    
     run_img(img, numpy.array([[0.5, 0.5]]))
+
+    Stats.instance().finish_exec()    

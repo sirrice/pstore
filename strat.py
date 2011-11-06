@@ -43,6 +43,7 @@ class Spec(object):
     KEY        = 5
     PRED       = 6
     BINARY     = 7  # serialized to byte string
+    GRID       = 8
     NONE       = -1
 
     def __init__(self, outcoords, payload):
@@ -98,6 +99,8 @@ class Desc(object):
                     x.append("ONE")
                 elif foo == Spec.BOX:
                     x.append("BOX")
+                elif foo == Spec.GRID:
+                    x.append("GRID")
                 else:
                     x.append(str(foo))
             s = '%s_%s' % (s, "_".join(x))
@@ -118,6 +121,8 @@ class Desc(object):
                         x.append("ONE")
                     elif foo == Spec.BOX:
                         x.append("BOX")
+                    elif foo == Spec.GRID:
+                        x.append("GRID")
                     else:
                         x.append(str(foo))
             x.append(self.backward and 'b' or 'f')
@@ -158,7 +163,6 @@ class Strat(object):
     @staticmethod
     def noop():
         return Strat.single(Mode.NOOP, Spec.default(), True)
-
 
     @staticmethod
     def stat():

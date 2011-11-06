@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
 
     
-    Stats.instance('%s/stats.db' % logdir)
+    Stats.instance('%s/lsstfull.db' % logdir)
     
 
     
@@ -483,8 +483,6 @@ if __name__ == "__main__":
     run_iterations(logdir, runtype, scidata1, scidata2, False)
     Stats.instance().finish_exec()
 
-    exit()
-
     # query everything
     set_all_strategy(Strat.query(), w)
     for op in [cr1, cr2, clust, rmcr]:
@@ -504,24 +502,39 @@ if __name__ == "__main__":
         Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'pset', logdir, "lsst_psetall")
+                              runmode, 'one_key', logdir, "lsst_one_key")
     run_iterations(logdir, runtype, scidata1, scidata2, False)
     for maxcount in [-1]:#, 1, 10, 100]:
         print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
     Stats.instance().finish_exec()
 
-    # optimal
+
+    # many_key everything
+    set_all_strategy(Strat.query(), w)
+    for op in [cr1, cr2, clust, rmcr]:
+        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
+        
+    Stats.instance().add_exec(smallshape[0], smallshape[1],
+                              runmode, 'many_key', logdir, "lsst_many_key")
+    run_iterations(logdir, runtype, scidata1, scidata2, False)
+    for maxcount in [-1]:#, 1, 10, 100]:
+        print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
+    Stats.instance().finish_exec()
+
+
+
+    # optimal backwards
     set_all_strategy(Strat.query(), w)
     FDIFF = Strat([Bucket([ Desc(Mode.FULL_MAPFUNC, Spec.default(), True),
                             Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True) ])])
 
     Runtime.instance().set_strategy(cr1, FDIFF)
     Runtime.instance().set_strategy(cr2, FDIFF)
-    Runtime.instance().set_strategy(clust, Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY)))
+    Runtime.instance().set_strategy(clust, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
     Runtime.instance().set_strategy(rmcr, FDIFF)
 
     Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'opt2', logdir, "lsst_opt2")
+                              runmode, 'opt_manual', logdir, "lsst_opt_manual")
     run_iterations(logdir, runtype, scidata1, scidata2, False)
     for maxcount in [-1]:#, 1, 10, 100]:
         print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
