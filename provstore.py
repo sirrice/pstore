@@ -6,6 +6,7 @@ from operator import mul, or_, and_
 from strat import *
 from queryresult import *
 from util import subarray
+from rtree import index
 
 
 plog = logging.getLogger('provstore')
@@ -622,46 +623,37 @@ class DiskStore(IPstore):
         except Exception, e:
             pass
 
-class PgStore(DiskStore):
-    def __init__(self, op, run_id, fname, strat):
-        super(PgStore, self).__init__(op, run_id, fname, strat)
-        self.conn = None
 
-    def get(self, key):
-        return None
+class SpatialIndex(object):
+    def __init__(self, fname):
+        self.fname = '%s_rtree' % fname
+        self.rtree = None
 
-    def set(self, key, val):
-        pass
+    def set(self, box, val):
+        self.rtree.add(long(val), box)
 
-    def get_iter(self):
-        """
-        return a cursor to select * from pointers
-        """
-        pass
+    def get_pt(self, pt):
+        return self.rtree.intersection(pt)
 
-    def extract_outcells_enc(self, obj):
-        """
-        SpecKEY fetches
-        """
-        pass
-        
-    def extract_allincells_enc(self, obj):
-        pass
-
-    def extract_incells_enc(self, obj, arridx):
-        pass
-
-    def _serialize(self, data, buf, mode):
-        pass
-
-    def hash_join(self, left, arridx):
-        pass
+    def get_box(self, box):
+        return self.rtree.intersection(box)
 
     def open(self, new=False):
-        pass
+        p = index.Property()
+        p.dimension = 2
+        p.filename = self.fname
+
+        if new:
+            try:
+                os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
+                os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+            except:
+                pass
+        self.rtree = index.Index(p.get_filename(), properties=p)
 
     def close(self):
-        pass
+        self.rtree.close()
+        
 
 
 class PStore2(DiskStore):
@@ -1252,6 +1244,24 @@ class CompositePStore(IPstore):
 
 
 if __name__ == '__main__':
+
+    idx = SpatialIndex('/tmp/test')
+    idx.open(True)
+    idx.set((0,0,1,1), 10)
+    idx.close()
+
+    
+    idx.open(False)
+    print map(str, idx.get_pt((0,0)))
+    idx.close()
+    idx.open(False)
+    print map(str, idx.get_pt((0,0)))
+    idx.close()
+
+    idx.open(True)
+    print map(str, idx.get_pt((0,0)))
+    idx.close()
+    exit()
 
     def ser(pstore, coords, spec):
         buf = StringIO()        
