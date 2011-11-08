@@ -64,10 +64,14 @@ if __name__ == '__main__':
     print strat
     Runtime.instance().set_strategy(clus, strat)
 
+
+    # small image!
     img = numpy.array([[0,0,1,1],
                        [0,0,0,1],
                        [1,0,0,0],
                        [1,1,0,0]], dtype=np.float)
+
+    # big image!
     img = numpy.zeros((500,500), dtype=float)
     for i in xrange(50):
         for j in xrange(50):

@@ -111,16 +111,17 @@ def run_exp(db, strats, fanins, fanouts, noutput):
                         else:
                             pstore.write(outcoords, 's' * 10)
                                 
-                        updatecost = pstore.get_stat('update_stats', 0)
-                        bdbcost = pstore.get_stat('bdb', 0)
-                        serin = pstore.get_stat('serin', 0)
-                        serout = pstore.get_stat('serout', 0)
-                        ser = pstore.get_stat('_serialize', 0)
-                        wcost = pstore.get_stat('write', 0)
-                        disk = pstore.disk()
-                        runcosts = (ser, wcost, updatecost, bdbcost, serin, serout, disk)
-                        costs.append(runcosts)
                     pstore.close()
+                    updatecost = pstore.get_stat('update_stats', 0)
+                    bdbcost = pstore.get_stat('bdb', 0)
+                    serin = pstore.get_stat('serin', 0)
+                    serout = pstore.get_stat('serout', 0)
+                    ser = pstore.get_stat('_serialize', 0)
+                    wcost = pstore.get_stat('write', 0)
+                    disk = pstore.disk()
+                    runcosts = (ser, wcost, updatecost, bdbcost, serin, serout, disk)
+                    costs.append(runcosts)
+
                 costs = costs[-2:]
                 costs = map(np.mean, zip(*costs))
 
@@ -184,8 +185,8 @@ def stacked(db, strat, labels, fanin):
     ys = {}
 
     for label in labels:
-        cur.execute("select fanout, %s from stats where fanin = ? and strat = ? order by fanout" % label, (fanin, strat))
-#        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
+#        cur.execute("select fanout, %s from stats where fanin = ? and strat = ? order by fanout" % label, (fanin, strat))
+        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
         ys[label] = {}
         for row in cur.fetchall():
             fanout, y = row
@@ -299,25 +300,25 @@ if __name__ == '__main__':
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
 
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+
         # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
         # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
         
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
-        
         ]
 
-    noutput = 1000
+    noutput = 50000
     fanins = [1,10,25,50,100,200]
-    fanouts = [1,10,25,50,100,150,200,250,1000]
-    fanins = [1, 10, 50, 100, 200]
+    fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
+    fanins = [1, 10, 25, 50]#, 100]#, 200]
     if len(sys.argv) <= 1:
         print "python pstore_micro.py [run | viz | all]"
         exit()
@@ -327,7 +328,7 @@ if __name__ == '__main__':
     if mode in ( 'viz', 'all'):            
         viz(db, fanins)
     if mode in ( 'stack', 'all'):            
-        stackviz(db, strats, fanins)
+        stackviz(db, strats, fanouts)
     if mode in ( 'fit', 'all' ):
         def fgen(f):
             def _f(xs, a,b,c):

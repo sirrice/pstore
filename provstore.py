@@ -43,23 +43,38 @@ def bbox(coords):
 
     return (minc, maxc)
 
+
+__grid__ = None
+__gcells__ = 0
 def gengrid(coords):
     """
     @return (box, negs)
     box: bounding box containing the coordinates
     negs: encoded list of coords not in bounding box
     """
+    global __grid__, __gcells__
     box = bbox(coords)
     shape = (1+box[1][0]-box[0][0], 1+box[1][1]-box[0][1])
-    arr = np.ones(shape, dtype=bool)
+    ncells = reduce(mul, shape)
+    if __gcells__ < ncells:
+        __grid__ = np.ones((1, ncells), dtype=bool)
+        __gcells__ = reduce(mul, __grid__.shape)
+    arr = __grid__[:,:ncells].reshape((shape))
+    arr[:,:] = True
     newcoords = map(lambda coord: (coord[0]-box[0][0], coord[1]-box[0][1]), coords)
     arr[zip(*newcoords)] = False
     encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
     return (box, encs)
 
 def decgrid(box, negs):
+    global __grid__, __gcells__    
     shape = ( 1+box[1][0]-box[0][0], 1+box[1][1]-box[0][1] )
-    arr = np.ones(shape, dtype=bool)
+    ncells = reduce(mul, shape)
+    if __gcells__ < ncells:
+        __grid__ = np.ones((1, ncells), dtype=bool)
+        __gcells__ = reduce(mul, __grid__.shape)
+    arr = __grid__[:,:ncells].reshape((shape))
+    arr[:,:] = True
     arr[zip(*map(lambda enc: dec(enc, shape), negs))] = False
     return map(lambda coord: (coord[0]+box[0][0], coord[1]+box[0][1]), np.argwhere(arr))
 
@@ -598,13 +613,55 @@ class DiskStore(IPstore):
 
     @instrument
     def close(self):
+        global __grid__, __gcells__        
         try:
             self.bdb.close()
             self.bdb = None
+            __grid__ = None
+            __gcells__ = 0
         except Exception, e:
             pass
 
+class PgStore(DiskStore):
+    def __init__(self, op, run_id, fname, strat):
+        super(PgStore, self).__init__(op, run_id, fname, strat)
+        self.conn = None
 
+    def get(self, key):
+        return None
+
+    def set(self, key, val):
+        pass
+
+    def get_iter(self):
+        """
+        return a cursor to select * from pointers
+        """
+        pass
+
+    def extract_outcells_enc(self, obj):
+        """
+        SpecKEY fetches
+        """
+        pass
+        
+    def extract_allincells_enc(self, obj):
+        pass
+
+    def extract_incells_enc(self, obj, arridx):
+        pass
+
+    def _serialize(self, data, buf, mode):
+        pass
+
+    def hash_join(self, left, arridx):
+        pass
+
+    def open(self, new=False):
+        pass
+
+    def close(self):
+        pass
 
 
 class PStore2(DiskStore):
@@ -664,7 +721,7 @@ class PStore2(DiskStore):
 
     @instrument
     def write(self, outcoords, payload):
-        self.update_stats(outcoords, payload)
+        #self.update_stats(outcoords, payload)
         start = time.time()
         key = self.get_key(outcoords)
         self.inc_stat('serout', time.time() - start)
@@ -703,7 +760,7 @@ class PStore3(DiskStore):
         
     @instrument
     def write(self, outcoords, *incoords_arr):
-        self.update_stats(outcoords, *incoords_arr)
+        #self.update_stats(outcoords, *incoords_arr)
 
         start = time.time()
         val = StringIO()
