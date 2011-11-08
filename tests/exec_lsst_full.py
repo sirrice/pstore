@@ -512,7 +512,7 @@ if __name__ == "__main__":
     # many_key everything
     set_all_strategy(Strat.query(), w)
     for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
+        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY)))
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'many_key', logdir, "lsst_many_key")
