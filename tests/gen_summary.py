@@ -2,6 +2,7 @@ import sys
 sys.path.append('..')
 from stats import Stats
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 import matplotlib
 import numpy as np
 
@@ -42,18 +43,28 @@ cur = conn.cursor()
 def get_plot(runmode):
     # get all the experiments
     cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
-                from exec where runmode = ? and runtype not in ('noop', 'noop_model')
+                from exec where runmode = ? and runtype not in ('noop', 'noop_model', 'stats', 'stats_model', 'opt')
                 order by rowid, diskconstraint""", (runmode,))
     title = 'runmode%d' % runmode
     features = ['overhead', 'disk']#, 'fcost', 'bcost']
     exps = cur.fetchall()
 
 
+    replaces = (('KEY', 'REF'), ('PTR_', ''), ('_B', '_b'), ('_F', '_f'))
+    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'))
+    
+    
     labels = []
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
         label = "disk(%d)\nrun(%d)" % (dcon, rcon)
         label = 'config-%s' % notes[-1:]
-        label = notes
+        label = notes.upper()
+        for k,v in replaces:
+            label = label.replace(k,v)
+        for k,v in fullreps:
+            if k == label:
+                label = v
+        print label
         labels.append(label)
 
     ymax = 0
@@ -72,7 +83,7 @@ def get_plot(runmode):
         ymax = max(ymax, overhead/opcost, disk)
 
 
-    draw(ymax * 1.2, ['overhead','disk'], table, labels, '%s_overhead' % title,
+    draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, #'%s_overhead' % title,
          'X times baseline', plotargs={'yscale':'linear'})
 
 
@@ -127,9 +138,11 @@ def get_plot(runmode):
             
             ymax = max(ymax, cost)
 
-    #features = sorted(['query-%s' % v for v in allpaths.values()])
-    draw(ymax*1.2, sorted(allpaths.values()), table, labels, '%s_qcosts' % title, 'querycost',
-         plotargs={'yscale':'linear'})
+    table = dict([('Q%s' % k, v) for k,v in table.items()])
+    features = sorted(['Q%s' % v for v in allpaths.values()])
+    #features = sorted(allpaths.values())
+    draw(ymax*1.2, features, table, labels, 'costs%d' % runmode,#'%s_qcosts' % title,
+         'querycost', plotargs={'yscale':'linear'})
     return
     # get strategies
     cur.execute(STRATS, (rowid,))
@@ -142,11 +155,11 @@ def get_plot(runmode):
 
 def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     # draw the graph
-    figparams = matplotlib.figure.SubplotParams(top=0.8)
-    fig = plt.figure(figsize=(30, 5), subplotpars=figparams)
+    figparams = matplotlib.figure.SubplotParams(top=0.9)
+    fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
-    width = 0.037
+    width = 0.05#0.037
     colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', '#eeeeee']
     n = 0
     rects = []
@@ -157,9 +170,15 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
         rects.append(rect)
         n += 1
 
-    plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features], loc='upper center')
+    fontP = FontProperties()
+    fontP.set_size('small')
+    # ax.legend(loc='upper center',# 
+    #           ncol=3, fancybox=True, shadow=True, prop=fontP)        
+    plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features],
+                  loc='upper center', ncol=5, fancybox=True, shadow=True, prop=fontP,
+                  bbox_to_anchor=(0.5, .93))
     ax.set_ylabel(ylabel)
-    ax.set_xlabel('constraints')
+    ax.set_xlabel('Storage Strategies')
     ax.set_xticks(ind+(width * 5))
     ax.set_xticklabels(labels)
     ax.grid(True)
