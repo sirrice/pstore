@@ -542,8 +542,8 @@ class DiskStore(IPstore):
                 getkey = lambda item: item.object
             extract = lambda obj: self.extract_incells(obj, arridx)
 
-
             for l in left:
+                l = tuple(l)
                 for item in self.outidx.get_pt(l):
                     key = getkey(item)
                     r = (key, self.bdb[key])
