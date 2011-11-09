@@ -325,7 +325,7 @@ class DiskStore(IPstore):
         super(DiskStore, self).__init__(op, run_id, fname, strat)
         self.bdb = None
         self.n = 0
-        self.rtree = SpatialIndex(fname)
+        self.outidx = SpatialIndex(fname)
 
     def get_iter(self):
         return (x for x in self.bdb.iteritems() if not x[0].startswith("key:"))
@@ -341,7 +341,7 @@ class DiskStore(IPstore):
         NOTE: returns integer encoded coords
         """
         if self.spec.outcoords == Spec.KEY:
-            ser_key = obj[0]
+            ser_key = self._parse(StringIO(obj[0]), Spec.KEY)
             ser_vals = self.bdb[ser_key]
             vals = self._parse(StringIO(ser_vals), Spec.COORD_MANY)
             return vals
@@ -445,6 +445,7 @@ class DiskStore(IPstore):
         """
         NOTE: expects coordinates to be in encoded into integer format already
         """
+        
         if mode == Spec.COORD_ONE:
             coords = data
             buf.write(struct.pack("I", coords[0]))
@@ -465,7 +466,6 @@ class DiskStore(IPstore):
             self._serialize(data, ser_coords, Spec.COORD_MANY)
             ser_coords = ser_coords.getvalue()
             ser_key = 'key:%s' % str(hash(ser_coords))     # poor man's key gen
-
             self.bdb[ser_key] = ser_coords
             s = struct.pack("I%ds" % (len(ser_key)), len(ser_key), ser_key)
             buf.write(s)
@@ -512,19 +512,52 @@ class DiskStore(IPstore):
             self.close()
             return
 
+
+        
+        predcost = 0.0
+        matchcost = 0.0
+        extractcost = 0.0
+        niter = 0.0
+        npred = 0.0
+        nmatches = 0.0
+
+
         # pred
         # matches
         # extract
-        if backward:
+        if backward:  # backward query
             if Spec.BOX == self.spec.outcoords:
                 pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
                 matches = in_box
+                def getkey(item):
+                    box = item.bbox
+                    box = (box[:2],box[2:])
+                    key = StringIO()
+                    self._serialize(box, key, Spec.BOX)
+                    return key.getvalue()
             else:
                 pred = self.extract_outcells_enc
-                matches = lambda coord, outcoords: coord in outcoords
-                left = map(self.enc_out, left)
+                matches = lambda coord, outcoords: self.enc_out(coord) in outcoords
+                #left = map(self.enc_out, left)
+                getkey = lambda item: item.object
             extract = lambda obj: self.extract_incells(obj, arridx)
-        else:
+
+
+            for l in left:
+                for item in self.outidx.get_pt(l):
+                    key = getkey(item)
+                    r = (key, self.bdb[key])
+                    coords = pred(r)
+                    b = matches(l, coords)
+                    if b:
+                        start = time.time()
+                        e = extract(r)
+                        extractcost += time.time() - start
+                        for coord in e:
+                            yield coord
+            
+
+        else:  # forward query
             if Spec.BOX == self.spec.payload:
                 def pred(coord, obj):
                     buf = StringIO(obj[1])
@@ -538,34 +571,27 @@ class DiskStore(IPstore):
                 left = map(lambda l: self.enc_in(l, arridx), left)
             extract = lambda obj: self.extract_outcells(obj)
 
-        
-        
-        
-        predcost = 0.0
-        matchcost = 0.0
-        extractcost = 0.0
-        niter = 0.0
-        npred = 0.0
-        nmatches = 0.0
-        for r in self.get_iter(): # r is a pair of unparsed strings
-            niter += 1
-            start = time.time()
-            coords = pred(r) #
-            predcost += time.time() - start
-            npred += len(coords)
 
-            for l in left:
+
+            for r in self.get_iter(): # r is a pair of unparsed strings
+                niter += 1
                 start = time.time()
-                b = matches(l, coords)
-                matchcost += time.time() - start
-                nmatches += 1
-                if b:
+                coords = pred(r) #
+                predcost += time.time() - start
+                npred += len(coords)
+
+                for l in left:
                     start = time.time()
-                    e = extract(r)
-                    extractcost += time.time() - start
-                    for coord in e:
-                        yield coord
-                    break
+                    b = matches(l, coords)
+                    matchcost += time.time() - start
+                    nmatches += 1
+                    if b:
+                        start = time.time()
+                        e = extract(r)
+                        extractcost += time.time() - start
+                        for coord in e:
+                            yield coord
+                        break
         self.close()
         
         plog.debug( "n/left:   %d\t%d", niter, len(left) )
@@ -612,7 +638,7 @@ class DiskStore(IPstore):
             self.bdb = bsddb.hashopen(self.fname, 'n')
         else:
             self.bdb = bsddb.hashopen(self.fname)
-        self.rtree.open(new=new)
+        self.outidx.open(new=new)
 
     @instrument
     def close(self):
@@ -620,7 +646,7 @@ class DiskStore(IPstore):
         try:
             self.bdb.close()
             self.bdb = None
-            self.rtree.close()
+            self.outidx.close()
             __grid__ = None
             __gcells__ = 0
         except Exception, e:
@@ -631,15 +657,17 @@ class SpatialIndex(object):
     def __init__(self, fname):
         self.fname = '%s_rtree' % fname
         self.rtree = None
+        self.id = 0
 
     def set(self, box, val):
-        self.rtree.add(long(val), box)
+        self.rtree.add(self.id, box, val)
+        self.id += 1
 
     def get_pt(self, pt):
-        return self.rtree.intersection(pt)
+        return self.rtree.intersection(pt, objects=True)
 
     def get_box(self, box):
-        return self.rtree.intersection(box)
+        return self.rtree.intersection(box, objects=True)
 
     def open(self, new=False):
         p = index.Property()
@@ -719,10 +747,18 @@ class PStore2(DiskStore):
         #self.update_stats(outcoords, payload)
         start = time.time()
         key = self.get_key(outcoords)
+        box = []
+        map(lambda x: box.extend(x), bbox(outcoords))
+        self.outidx.set(box, key)
         self.inc_stat('serout', time.time() - start)
+
+
+        
         start = time.time()
         val = self.get_val(payload)
         self.inc_stat('serin', time.time() - start)
+
+        
         start = time.time()
         self.bdb[key] = val
         self.inc_stat('bdb', time.time() - start)
@@ -815,17 +851,24 @@ class PStore3(DiskStore):
                     self.inc_stat('bdb', time.time() - start)
         elif Spec.BOX == self.spec.outcoords:
             key = StringIO()
-            self._serialize(bbox(outcoords), key, Spec.BOX)
+            box = bbox(outcoords)
+            self._serialize(box, key, Spec.BOX)
+            key = key.getvalue()
+            
             start = time.time()
-            self.bdb[key.getvalue()] = val
+            self.bdb[key] = val
+            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), None)
             self.inc_stat('bdb', time.time() - start)
         else:
             enc_outcoords = map(self.enc_out, outcoords)
+            box = bbox(outcoords)
             key = StringIO()
             self._serialize(enc_outcoords, key, self.spec.outcoords)
             key = key.getvalue()
+            
             start = time.time()
             self.bdb[key] = val
+            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), key)
             self.inc_stat('bdb', time.time() - start)
             
         self.inc_stat('serout', time.time() - ostart)

@@ -38,7 +38,7 @@ if __name__ == '__main__':
         for q in queries:
             print len( w.forward_path(*q))
         output = clus.wrapper.get_output(runid)
-        indices = np.argwhere(output)
+        indices = map(tuple,np.argwhere(output))
         print len(w.backward_path([ indices[0] ], runid, [(clus,0)]))
 
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     w.connect(conv, clus, 0)
 
     w.default_strategy()
-    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True)
+    strat = Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True)
     print strat
     Runtime.instance().set_strategy(clus, strat)
 
