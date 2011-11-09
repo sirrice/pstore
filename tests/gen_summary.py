@@ -7,20 +7,24 @@ import matplotlib
 import numpy as np
 
 
-OVERHEADPEROP = """SELECT op, avg(save), avg(overhead) / avg(wr.opcost),
-    avg(serialize) / avg(wr.opcost), 
-    avg(disk) / 32000080.0, avg(wr.opcost)
+OVERHEADPEROP = """SELECT op, sum(save), sum(overhead) / sum(wr.opcost),
+    sum(serialize) / sum(wr.opcost), 
+    sum(disk) / 32000080.0, sum(wr.opcost)
 FROM pstore_overhead as po, workflow_run as wr, exec 
 WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func'
 GROUP BY op;"""
-OVERHEAD = """SELECT avg(save), avg(overhead), avg(serialize) , 
-    avg(disk) / (8.00002 * width * height), avg(wr.opcost)
-FROM pstore_overhead as po, workflow_run as wr, exec 
-WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func';"""
-OPCOST = """SELECT avg(wr.opcost)
+OVERHEAD = """SELECT sum(save), sum(overhead), sum(serialize) , 
+    sum(disk), sum(wr.opcost)
+FROM pstore_overhead as po, workflow_run as wr, exec, workflow_inputs as wi
+WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and wi.wid = wr.rowid and strat != 's:Func'
+"""
+OPCOST = """SELECT sum(wr.opcost)
 FROM workflow_run as wr, exec as e1, exec as e2
 WHERE e1.rowid = wr.eid and e1.runtype = 'noop' and
       strat != 's:Func' and e2.rowid = ? and e1.runmode = e2.runmode;"""
+NORMDISK = """select sum(wi.area) * 8.00002
+FROM workflow_inputs as wi, workflow_run as wr
+WHERE wi.wid = wr.rowid and wr.eid = ?"""
 
 PQCOST = """SELECT avg(pq.cost)
      FROM pq
@@ -73,14 +77,20 @@ def get_plot(runmode):
         # get opcost
         cur.execute(OPCOST, (rowid,))
         opcost = cur.fetchone()[0]
+        cur.execute(NORMDISK, (rowid, ))
+        normdisk = cur.fetchone()[0]
+
+
         
         # get overhead
         cur.execute(OVERHEAD, (rowid,))
         save, overhead, ser, disk, opcost = cur.fetchone()
+
+        print "opcost", notes, opcost, normdisk, disk, disk/normdisk        
         
         table['overhead'].append(overhead / opcost)
-        table['disk'].append(disk)
-        ymax = max(ymax, overhead/opcost, disk)
+        table['disk'].append(float(disk) / normdisk)
+        ymax = max(ymax, overhead/opcost, disk / normdisk)
 
 
     draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, #'%s_overhead' % title,

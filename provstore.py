@@ -651,7 +651,11 @@ class DiskStore(IPstore):
             __gcells__ = 0
         except Exception, e:
             pass
-
+class BinaryRTree(index.Index):
+    def dumps(self, obj):
+        return obj
+    def loads(self, s):
+        return s
 
 class SpatialIndex(object):
     def __init__(self, fname):
@@ -680,7 +684,7 @@ class SpatialIndex(object):
                 os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
             except:
                 pass
-        self.rtree = index.Index(p.get_filename(), properties=p)
+        self.rtree = BinaryRTree(p.get_filename(), properties=p)
 
     def close(self):
         self.rtree.close()
@@ -1290,10 +1294,38 @@ class CompositePStore(IPstore):
 
 
 if __name__ == '__main__':
+    coord = None
 
-    idx = SpatialIndex('/tmp/test')
-    idx.open(True)
-    idx.set((0,0,1,1), 10)
+    def run(npoints):
+        idx = SpatialIndex('/tmp/test')
+        idx.open(True)
+        start = time.time()
+        for i in xrange(npoints):
+            idx.set((i,i,i+1,i+1), coord)
+        end1 = time.time()
+        idx.close()
+        end2 = time.time()
+        return end1-start, end2-start
+
+    def bdb(npoints):
+        db = bsddb.hashopen('/tmp/test.db', 'n')
+        start = time.time()
+        for i in xrange(npoints):
+            db[str(i)] = coord
+        end1 = time.time()
+        db.close()
+        end2 = time.time()
+        return end1-start, end2-start
+        
+
+    for i in (10, 100, 1000, 10000, 100000):
+        cost1, cost2 = run(i)
+        datsize = os.path.getsize('/tmp/test_rtree.dat')
+        idxsize = os.path.getsize('/tmp/test_rtree.idx')
+        print '%d\t%f\t%f\t%f\t%f\t%f' % (i, cost2 / i, cost1, cost2, datsize/1048576.0, idxsize / 1048576.0)
+    exit()
+
+    idx.set((0,0,1,1), '0')
     idx.close()
 
     
