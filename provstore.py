@@ -325,6 +325,7 @@ class DiskStore(IPstore):
         super(DiskStore, self).__init__(op, run_id, fname, strat)
         self.bdb = None
         self.n = 0
+        self.rtree = SpatialIndex(fname)
 
     def get_iter(self):
         return (x for x in self.bdb.iteritems() if not x[0].startswith("key:"))
@@ -611,6 +612,7 @@ class DiskStore(IPstore):
             self.bdb = bsddb.hashopen(self.fname, 'n')
         else:
             self.bdb = bsddb.hashopen(self.fname)
+        self.rtree.open(new=new)
 
     @instrument
     def close(self):
@@ -618,6 +620,7 @@ class DiskStore(IPstore):
         try:
             self.bdb.close()
             self.bdb = None
+            self.rtree.close()
             __grid__ = None
             __gcells__ = 0
         except Exception, e:
