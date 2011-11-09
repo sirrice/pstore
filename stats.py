@@ -27,9 +27,6 @@ class Stats(object):
     """
 
     def __init__(self, fname):
-        self.runtime_stats = []
-        self.pq_stats = []
-        self.iq_stats = []
         self.oid_to_name = {}
 
         self.conn = sqlite3.connect(fname)
@@ -126,10 +123,8 @@ class Stats(object):
 
 
     def clear(self):
-        
-        self.runtime_stats = []
-        self.pq_stats = []
-        self.iq_stats = []
+        pass
+
 
     def save(self, fname):
         try:
@@ -340,63 +335,29 @@ class Stats(object):
         cur.close()
         return ret
 
-
-    def get_xxx(self, op, s, idx, run_id=None, default=0.001):
-        """
-        get prov disk size for op,s,run_id triple
-        if specific val doesn't exist, default to average for op,s
-        if that doesn't exist, default to average of everything
-        if that doesn't exist, default to fixed value
-
-        run_id None means get average disk
-        """
-        def f1(tup):
-            return tup[1]==op.oid and tup[2]==s and tup[0]
-        def f2(tup):
-            if run_id == None: return True
-            return tup[0]==run_id
-
-        disks = [tup[idx] for tup in filter(f2, filter(f1, self.runtime_stats))]
-        if len(disks) > 0:
-            return numpy.mean(disks)
-
-        disks = [tup[idx] for tup in filter(f1, self.runtime_stats)]
-        if len(disks) > 0:
-            return numpy.mean(disks)
-
-        disks = [tup[idx] for tup in self.runtime_stats]
-        if len(disks) > 0:
-            return numpy.mean(disks)
+    def get_disk(self, runid, op, strat, default=0.0):
+        q = """SELECT disk / 1048576.0
+        FROM workflow_run as wr, pstore_overhead as po
+        WHERE po.wid = wr.rowid and wr.runid = ? and wr.op = ? and wr.strat = ?"""
+        cur = self.conn.cursor()
+        res = cur.execute(q, (runid, str(op).strip(), str(strat)))
+        for row in res:
+            return row[0]
         return default
 
-    def get_save(self, op, s, run_id=None):
-        return self.get_xxx(op, s, 5, run_id=run_id, default=0.0)
 
-    def get_runtime(self, op, s, run_id=None):
-        return self.get_xxx(op, s, 3, run_id=run_id, default=0.0001)
-
-    def get_disk(self, op, s, run_id=None):
-        ret = self.get_xxx(op, s, 6, run_id=run_id, default=50.0) / 1048576.0
-        return ret
-
-    def get_overhead(self, op, s, run_id=None):
-        ret = self.get_xxx(op, s, 5, run_id=run_id, default=0.00005)
-        return ret
+    def get_overhead(self, runid, op, strat, default=0.0):
+        q = """SELECT overhead
+        FROM workflow_run as wr, pstore_overhead as po
+        WHERE po.wid = wr.rowid and wr.runid = ? and wr.op = ? and wr.strat = ?"""
+        cur = self.conn.cursor()
+        res = cur.execute(q, (runid, str(op).strip(), str(strat)))
+        for row in res:
+            return row[0]
+        return default
 
 
-    def get_provq_cost(self, op, s, run_id=None):
-        def f1(tup):
-            return tup[1] == op.oid and tup[2] == s
-        def f2(tup):
-            if run_id == None: return True
-            return self.pq_stats[tup[0]][0] == run_id
 
-        costs = [tup[3] for tup in filter(f2, filter(f1, self.iq_stats))]
-        if len(costs) > 0: return numpy.mean(costs)
-
-        costs = [tup[3] for tup in self.iq_stats]
-        if len(costs) > 0: return max(costs)
-        return 1
 
 
 if __name__ == '__main__':

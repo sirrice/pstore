@@ -213,6 +213,9 @@ class IPstore(object):
     def close(self):
         pass
 
+    def delete(self):
+        pass
+
 
 class NoopPStore(IPstore):
     def uses_mode(self, mode):
@@ -651,6 +654,19 @@ class DiskStore(IPstore):
             __gcells__ = 0
         except Exception, e:
             pass
+
+    def delete(self):
+        """
+        be careful with this guy!
+        """
+        try:
+            os.unlink(self.fname)
+            self.outidx.delete()
+        except:
+            raise
+
+
+        
 class BinaryRTree(index.Index):
     def dumps(self, obj):
         return obj
@@ -662,6 +678,11 @@ class SpatialIndex(object):
         self.fname = '%s_rtree' % fname
         self.rtree = None
         self.id = 0
+        p = index.Property()
+        p.dimension = 2
+        p.filename = self.fname
+        self.p = p
+        
 
     def set(self, box, val):
         self.rtree.add(self.id, box, val)
@@ -674,10 +695,7 @@ class SpatialIndex(object):
         return self.rtree.intersection(box, objects=True)
 
     def open(self, new=False):
-        p = index.Property()
-        p.dimension = 2
-        p.filename = self.fname
-
+        p = self.p
         if new:
             try:
                 os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
@@ -688,6 +706,15 @@ class SpatialIndex(object):
 
     def close(self):
         self.rtree.close()
+
+    def delete(self):
+        p = self.p
+        try:
+            os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
+            os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+        except:
+            raise
+
         
 
 

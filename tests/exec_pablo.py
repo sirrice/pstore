@@ -333,13 +333,17 @@ def create_workflow():
                 q[0] = len(q[0])
 
             mp = ModelPredictor(eids, w, qs)
-            strategies = run_nlp(Stats.instance(), w, mp, disk,runcost)
+            strategies, torm = run_nlp(Stats.instance(), w, mp, disk,runcost)
             for op in sorted(strategies.keys()):
                 Runtime.instance().set_strategy(op, strategies[op][0])
 
+            # remove old strategies from cache
+            for op, runid in torm:
+                b = Runtime.instance().delete_pstore(op, runid)
+
             return 'opt'
 
-        return [stat]#, query_opt, opt, ptr1, ptr3, ptr5]
+        return [stat, ptr4, opt]#, query_opt, opt, ptr1, ptr3, ptr5]
         [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
          ptr4, ptr5, opt]
     
@@ -400,10 +404,10 @@ if __name__ == '__main__':
         runcost = 100
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
         for disk in disksizes:
+            Runtime.instance().restore_pstores()
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
             print runtype, disk
-
             if bmodel:
 
                 run_model(ds, runmode, runtype, disk, runcost, eids)
@@ -420,7 +424,7 @@ if __name__ == '__main__':
         if bmodel:
             run_model(ds, runmode, runtype)
         else:
-            run(ds, runmode, runtype)        
+            run(ds, runmode, runtype)
             if runtype in ('noop', 'stats'):
                 return
             for x in run_qs(w, get_qs(), bmodel):

@@ -1,8 +1,10 @@
 import os, logging, numpy
 from util import print_matrix
 from runtime import *
+from stats import Stats
 from cvxopt.glpk import ilp
 from cvxopt import *
+from cvxopt import glpk
 
 
 nlog = logging.getLogger('nlp')
@@ -15,31 +17,63 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     """
     maxoverhead is percentage of average runtime cost of optimizable operators
     """
+    stats = Stats.instance()
     ops = w.get_optimizable_ops()
     matstrats = w.get_matstrats()
-    pairs = [(op, s) for op in ops for s in matstrats]
+    currun = w._runid
+    pairs = [(currun, op, s) for op in ops for s in matstrats]
 
-    avg_runtime = sum(filter(lambda x: x > 0, [mp.get_opcost(op, s) for op,s in pairs]))
+    trips = list(pairs)
+    existingops = []
+    for r,o,s in Runtime.instance().get_disk_strategies():
+        trips.append((r,o,s))
+        trips.append((r,o,Strat.query()))
+        existingops.append((o,r))
+    
+    #trips = [(r,op,s) for r in xrange(1, currun+1) for op in ops for s in matstrats]
+
+    xold = [Runtime.instance().check_strategy(op,r,s) and 1 or 0 for r,op,s in trips]
+
+    avg_runtime = sum(filter(lambda x: x > 0, [mp.get_opcost(op, s) for r,op,s in pairs if r == currun]))
     maxoverhead *= avg_runtime
 
-    G1 = [mp.get_disk(op,s) for (op,s) in pairs]
-    G2 = [mp.get_provcost(op, s) for (op,s) in pairs]
+    G1 = []
+    for r,op,s in trips:
+        if r == currun:
+            G1.append(mp.get_disk(op, s))
+        else:
+            G1.append(stats.get_disk(r,op,s))
+    G2 = []
+    for r,op,s in trips:
+        if r == currun:
+            G2.append(mp.get_provcost(op, s))
+        else:
+            G2.append(0.0)
+    
     G = matrix([G1, G2]).trans()
     h = matrix([maxdisk, maxoverhead])
 
     A = []
+    # every operator needs exactly 1 strategy constraint
+    blocksize = len(matstrats) 
     for i in xrange(len(ops)):
-        row = []
-        for col in xrange(len(pairs)):
-            if len(matstrats) * i <= col and col < len(matstrats) * (i+1):
-                row.append(1.0)
-            else:
-                row.append(0.0)
+        row = [0.0] * len(trips)
+        for col in xrange(len(trips)):
+            if blocksize * i <= col and col < blocksize * (i+1) and col < len(pairs):
+                row[col] = 1.0
+        A.append(row)
+    for i, (op,r) in enumerate(existingops):
+        row = [0.0] * len(trips)
+        col = len(pairs) + i * 2
+        row[col] = 1.0
+        row[col+1] = 1.0
         A.append(row)
     A = matrix(A).trans()
-    b = matrix([1.0] * len(ops))
+    b = matrix([1.0] * (len(ops)+len(existingops)))
 
-    c = [mp.get_pqcost(op,s) for op,s in pairs]
+
+    c = [mp.get_pqcost(op,s) / (currun - r + 1) for r,op,s in trips]
+
     #c = map(lambda cost: cost * 100.0, c)
     minc = min(cost for cost in c) / 2.0
     # normalize disk and runcost to minc
@@ -47,38 +81,60 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     G2p = [g / max(G2) * minc for g in G2]
     c = map(sum, zip(c, G1p, G2p))
 
-    d = dict([(p, cost) for cost, p in zip(c, pairs)])
+    d = dict([(t, cost) for cost, t in zip(c, trips)])
     c = matrix(c)
 
 
     nlog.debug("Constraints: %f\t%f" , maxdisk, maxoverhead)
-    for op, s in pairs:
+    for r, op, s in trips:
         pqcost = mp.get_pqcost(op, s)
         nlog.debug('%s\t%s\t%f\t%f\t%f\t%f', op, str(s).ljust(25),
                    pqcost,
                    mp.get_disk(op,s),
                    mp.get_provcost(op, s),
-                   d[(op, s)])
+                   d[(r, op, s)])
         
 
-    strategies = nlp_exec_cvx(c, ops, matstrats, G, h, A, b)
+    strategies, torm = nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b)
 
-    return strategies
+    return strategies, torm
     
 
-def nlp_exec_cvx(c, ops, matstrats, G, h, A, b):
+def nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b):
+    """
+    @return newassignments, prov_to_remove
+    prov_to_remove is a list of (op, runid) pairs
+    """
     solvers.options['show_progress'] = False
+    solvers.options['LPX_K_MSGLEV'] = 0
+    solvers.options['MessageLevel'] = 3
+    glpk.options['LPX_K_MSGLEV'] = 0
+
     I = set()
     B = set(range(len(c)))
 
-    status, x = ilp(c, G, h, A, b, I, B)
-    nlog.info( "resources  \t%s", (G*x).trans() )
-    nlog.info( "constraints\t%s", h.trans() )
-    nlog.info( "cost       \t%s", x.trans() * c )
 
-    x = numpy.array(x).reshape((len(ops), len(matstrats))).tolist()
-    strategies = assign_strategies(x, ops, matstrats)
-    return strategies
+
+    status, x = ilp(c, G, h, A, b, I, B)
+
+    nlog.info( "status     \t%s", status )
+    nlog.info( "resources  \t%s", np.array((G*x).trans())[0] )
+    nlog.info( "constraints\t%s", np.array(h.trans())[0] )
+    nlog.info( "cost       \t%s", np.array(x.trans() * c)[0] )
+
+    pairsize = len(ops)*len(matstrats)
+    newassignments = x[:pairsize]
+    rmassignments = x[pairsize:]
+
+    newassignments = numpy.array(newassignments).reshape((len(ops), len(matstrats))).tolist()
+    strategies = assign_strategies(newassignments, ops, matstrats)
+
+    torm = []
+    for strat, ass in zip(trips[pairsize:], rmassignments):
+        if strat[2] == Strat.query() and ass:
+            torm.append((strat[1], strat[0]))
+
+    return strategies, torm
     
 
 def assign_strategies(matrix, ops, strats):

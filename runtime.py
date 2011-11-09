@@ -25,7 +25,12 @@ class Runtime(object):
         self.old_strats = {} # op -> {run_id -> strat}
         self.pstores = {}    # (op,run_id) -> pstore
         self.override = {}   # (op,run_id) -> pstore
-        
+
+        # don't _actually_ delete old provstores
+        # in experiments, want to restore them later on
+        self.rm_strats = {}  # (op,run_id) -> strat
+        self.rm_pstores = {}  # (op,run_id) -> pstore
+
 
     @staticmethod
     def instance():
@@ -48,6 +53,25 @@ class Runtime(object):
         if run_id == None or op not in self.old_strats or run_id not in self.old_strats[op]:
             return self.cur_strats[op]
         return self.old_strats[op][run_id]
+
+    def check_strategy(self, op, run_id, strat):
+        if op not in self.old_strats:
+            return False
+        if run_id not in self.old_strats[op]:
+            return False
+        if self.old_strats[op][run_id] != strat:
+            return False
+        return True
+
+    def get_disk_strategies(self):
+        print len(self.old_strats)
+        ret = []
+        for op, strats in self.old_strats.items():
+            for runid, s in strats.items():
+                if set(s.modes()).intersection([Mode.PT_MAPFUNC, Mode.PT_MAPFUNC_BOX, Mode.PTR]):
+                    ret.append( (runid, op, s) )
+        return ret
+    
 
     def get_filename(self, op, run_id):
         return '%s/%s_%d_%s' % (PSTOREDIR,
@@ -151,6 +175,39 @@ class Runtime(object):
         self.pstores[(op,run_id)] = pstore
         
         return pstore
+
+
+    def delete_pstore(self, op, run_id):
+        if op not in self.old_strats or run_id not in self.old_strats[op]:
+            return False
+        log.debug( "delete\t%s\t%s" % (op, run_id) )        
+        strat = self.old_strats[op][run_id]
+        self.old_strats[op][run_id] = Strat.query()
+        self.rm_strats[(op,run_id)] = strat
+
+        key = (op, run_id)
+        if key in self.pstores:
+            pstore = self.pstores[key]
+            # pstore.delete()
+            del self.pstores[key]
+            self.rm_pstores[key] = pstore
+
+        if key in self.override:
+            del self.override[key]
+        return True
+    
+    def restore_pstores(self):
+        """
+        """
+        log.debug( "restore_pstores" )
+        for (op, r), s in self.rm_strats.items():
+            log.debug( "restored strat\t%s\t%s" % (op, run_id) )
+            self.old_strats[op][r] = s
+        for (op, r), p in self.rm_pstores.items():
+            log.debug( "restored pstore\t%s\t%s\t%s" % (op, run_id, p) )
+            self.pstores[(op,r)] = p
+        self.rm_strats = {}
+        self.rm_pstores = {}
 
     def set_reexec(self, op, run_id, pstore):
         self.override[(op, run_id)] = pstore
