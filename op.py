@@ -348,17 +348,18 @@ class Workflow(object):
         start = time.time()
         child = Scan(incoords)
         for op, arridx in path:
-            wop = op.wrapper
+            start = time.time()
             wop = op.wrapper
             shape = wop.get_output_shape(run_id)
             pstore = Runtime.instance().get_pstore(op, run_id) 
             if pstore is None: raise RuntimeError
             child = pstore.join(child, arridx, backward=False)
-            start = time.time()
+
             child = DedupQuery(child, shape)
-            wlog.debug( time.time()-start, op, len(child) )
+            wlog.debug( 'Fpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
 
         end = time.time()
+        print "forward query cost", (end-start)
         return DedupQuery(child, shape)
         return NBDedupQuery(q)
 
@@ -379,7 +380,7 @@ class Workflow(object):
             try:
                 start = time.time()
                 child = DedupQuery(child, shape)
-                wlog.debug( time.time()-start, op, len(child) )
+                wlog.debug( 'Bpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
             except:
                 wlog.error( 'error running back\t%s',  op )
                 raise

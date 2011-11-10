@@ -310,7 +310,7 @@ class DedupQuery(Query):
             shape = child.shape
         super(DedupQuery, self).__init__(None, child, -1, shape)
         self.alltoall = False
-        if isinstance(child, AllToAllScan):
+        if isinstance(child, AllToAllScan) or (isinstance(child, DedupQuery) and child.alltoall):
             self.pqres = None
             self.alltoall = True
         else:
