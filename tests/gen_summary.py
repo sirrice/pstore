@@ -13,11 +13,6 @@ OVERHEADPEROP = """SELECT op, sum(save), sum(overhead) / sum(wr.opcost),
 FROM pstore_overhead as po, workflow_run as wr, exec 
 WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func'
 GROUP BY op;"""
-OVERHEAD = """SELECT sum(save), sum(overhead), sum(serialize) , 
-    sum(disk), sum(wr.opcost)
-FROM pstore_overhead as po, workflow_run as wr, exec, workflow_inputs as wi
-WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and wi.wid = wr.rowid and strat != 's:Func'
-"""
 OPCOST = """SELECT sum(wr.opcost)
 FROM workflow_run as wr, exec as e1, exec as e2
 WHERE e1.rowid = wr.eid and e1.runtype = 'noop' and
@@ -30,30 +25,30 @@ PQCOST = """SELECT avg(pq.cost)
      FROM pq
      WHERE rowid in %s"""
 STRATS = """SELECT op, strat FROM workflow_run where eid = ? and strat != 's:Func';"""
-ALLPATHS = """SELECT pqid, opid, 0, 0 FROM iq, pq WHERE pq.eid = ? and iq.pqid = pq.rowid
+ALLPATHS = """SELECT pqid, opid, 0, 0 FROM iq, pq WHERE pq.eid = 15 and iq.pqid = pq.rowid
               ORDER BY pqid, iq.rowid, opid, ninputs"""
 ALLPATHS = "SELECT rowid, (rowid-1) % 7, 0, 0 FROM pq where pq.eid = ? order by rowid, (rowid-1)%7"
-PATH = """SELECT opid FROM iq WHERE iq.pqid = ? order by iq.rowid"""
+ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
+              FROM pq, pq_path as pp
+              WHERE pp.pqid = pq.rowid and pq.eid = ?
+              ORDER BY pq.forward, pq.rowid, pp.idx;"""
 
-#stats = Stats.instance('./outputs/sep_28/stats.db')
+stats = Stats.instance('./results/lsstfull.db.nov.10.2011')
 #stats = Stats.instance('./_output/pablostats.db')
 #stats = Stats.instance('./_output/stats.db')
-stats = Stats.instance('./_output/lsstfull.db')
+#stats = Stats.instance('./_output/lsstfull.db')
 conn = stats.conn
 cur = conn.cursor()
 
 
-
-def get_plot(runmode):
+def get_exps(runmode):
     # get all the experiments
     cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
                 from exec where runmode = ? and runtype not in ('noop', 'noop_model', 'stats', 'stats_model', 'opt')
                 order by rowid, diskconstraint""", (runmode,))
-    title = 'runmode%d' % runmode
-    features = ['overhead', 'disk']#, 'fcost', 'bcost']
-    exps = cur.fetchall()
+    return cur.fetchall()
 
-
+def get_labels(exps):
     replaces = (('KEY', 'REF'), ('PTR_', ''), ('_B', '_b'), ('_F', '_f'))
     fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'))
     
@@ -63,75 +58,91 @@ def get_plot(runmode):
         label = "disk(%d)\nrun(%d)" % (dcon, rcon)
         label = 'config-%s' % notes[-1:]
         label = notes.upper()
-        for k,v in replaces:
-            label = label.replace(k,v)
-        for k,v in fullreps:
-            if k == label:
-                label = v
+        # for k,v in replaces:
+        #     label = label.replace(k,v)
+        # for k,v in fullreps:
+        #     if k == label:
+        #         label = v
         print label
         labels.append(label)
+    return labels
 
-    ymax = 0
-    table = {'overhead':[],'disk':[]}
+def get_baseline(rowid):
+    cur.execute(OPCOST, (rowid,))
+    opcost = cur.fetchone()[0]
+    cur.execute(NORMDISK, (rowid, ))
+    normdisk = cur.fetchone()[0]
+    return opcost, normdisk
+
+def get_overhead(exps):
+    OVERHEAD = """SELECT sum(opcost), sum(disk)
+    FROM pstore_overhead as po, workflow_run as wr, exec
+    WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func' """
+
+    table = {'overhead':[], 'disk':[]}
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
-        # get opcost
-        cur.execute(OPCOST, (rowid,))
-        opcost = cur.fetchone()[0]
-        cur.execute(NORMDISK, (rowid, ))
-        normdisk = cur.fetchone()[0]
-
-
+        basecost, basedisk = get_baseline(rowid)
         
         # get overhead
         cur.execute(OVERHEAD, (rowid,))
-        save, overhead, ser, disk, opcost = cur.fetchone()
+        opcost, disk = cur.fetchone()
 
-        print "opcost", notes, opcost, normdisk, disk, disk/normdisk        
+        print "opcost", notes, opcost, basecost, disk, basedisk
         
-        table['overhead'].append(overhead / opcost)
-        table['disk'].append(float(disk) / normdisk)
-        ymax = max(ymax, overhead/opcost, disk / normdisk)
+        table['overhead'].append((opcost - basecost) / basecost)
+        table['disk'].append(float(disk) / basedisk)
+    return table
+
+def get_allpaths(exps):
+    allpaths = set()
+    table = dict()
+    for rowid, runmode, notes, width, height, dcon, rcon in exps:
+        queries = get_queries(rowid)
+        paths = map(tuple, queries.values())
+        allpaths.update(paths)
+    allpaths = dict([(path, idx) for idx, path in enumerate(allpaths)])
+    return allpaths
+
+def get_queries(rowid):
+    cur.execute(ALLPATHS, (rowid,))
+    queries = {}
+    for pqid, f, opid in cur:
+        if pqid not in queries: queries[pqid] = []
+        queries[pqid].append(opid)
+    return queries
+
+def get_qcosts():
+    pass
+
+def get_plot(runmode):
+    exps = get_exps(runmode)
+    labels = get_labels(exps)
+    table = get_overhead(exps)
+    ymax = max(map(max, table.values()))
 
 
-    draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, #'%s_overhead' % title,
+    draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, 
          'X times baseline', plotargs={'yscale':'linear'})
 
 
     # collect all the paths
-    allpaths = set()
-    table = dict()
-    for rowid, runmode, notes, width, height, dcon, rcon in exps:
-        cur.execute(ALLPATHS, (rowid,))
-        queries = {}
-        for pqid, opid, ninputs, maxres in cur:
-            if pqid not in queries: queries[pqid] = []
-            queries[pqid].append((opid, ninputs, maxres))
-        paths = set([tuple(val) for val in queries.values()])
-        allpaths.update(paths)
-    allpaths = dict([(path, idx) for idx, path in enumerate(allpaths)])
+    allpaths = get_allpaths(exps)
     for path, idx in allpaths.items():
         table[idx] = []
 
 
     ymax = 0
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
-        cur.execute(ALLPATHS, (rowid,))
-        queries = {}
-        paths = set()
-        for pqid, opid, ninputs, maxres in cur:
-            if pqid not in queries: queries[pqid] = []
-            queries[pqid].append((opid, ninputs, maxres))
+        queries = get_queries(rowid)
         paths = map(tuple, queries.values())
 
+        # find all pqids with the same path
         d = {}
         for path in paths:
             d[path] = []
             for k,v in queries.items():
                 if path == tuple(v):
                     d[path].append(k)
-        # for pair in d.items():
-        #     print pair
-        # print '--------------'
         
         for path in allpaths:
             if path not in d:
@@ -166,7 +177,7 @@ def get_plot(runmode):
 def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     # draw the graph
     figparams = matplotlib.figure.SubplotParams(top=0.9)
-    fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
+    fig = plt.figure(figsize=(20, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
     width = 0.05#0.037

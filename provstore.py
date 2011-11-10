@@ -335,7 +335,7 @@ class DiskStore(IPstore):
 
     def disk(self):
         try:
-            return os.path.getsize(self.fname)
+            return os.path.getsize(self.fname) + self.outidx.disk()
         except:
             return 1
 
@@ -693,6 +693,15 @@ class SpatialIndex(object):
 
     def get_box(self, box):
         return self.rtree.intersection(box, objects=True)
+
+    def disk(self):
+        try:
+            idxsize = os.path.size('%s.%s' % (p.get_filename(), p.get_idx_extension()))
+            datsize = os.path.size('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+            return idxsize + datsize
+        except:
+            return 0
+
 
     def open(self, new=False):
         p = self.p
