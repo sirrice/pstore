@@ -10,7 +10,7 @@ from stats import Stats
 
 wlog = logging.getLogger('workflow')
 logging.basicConfig()
-wlog.setLevel(logging.INFO)
+wlog.setLevel(logging.ERROR)
 
 
 class Wrapper(object):

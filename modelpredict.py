@@ -2,11 +2,12 @@ import numpy as np
 from models import *
 from stats import *
 from operator import mul
+from util import zipf
 
 
 class ModelPredictor(object):
 
-    def __init__(self, eids, workflow, queries):
+    def __init__(self, eids, workflow, queries, l = 1.9):
         self.workflow = workflow
         self.queries = queries
         self.counts = {}
@@ -23,6 +24,14 @@ class ModelPredictor(object):
         self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
         self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
 
+
+        cumprobs = zipf(workflow._runid, l)
+        probs = []
+        prob = 0.0
+        for p in cumprobs:
+            probs.append(p-prob)
+            prob = p
+        self.probs = dict([(workflow._runid-i, p) for i, p in enumerate(probs)])
 
 
     def _cache_stats(self):
@@ -47,24 +56,24 @@ class ModelPredictor(object):
     def get_input_shape(self, op, arridx):
         return self.cache[(op, arridx)][7]
 
-    def get_provcost(self, op, strat):
-        opcost, prov, disk, qcosts = self.est_cost(op,strat)
+    def get_provcost(self, op, strat, runid = None):
+        opcost, prov, disk, qcosts = self.est_cost(op,strat, runid=runid)
         return prov#opcost + prov
 
-    def get_opcost(self, op, strat):
-        opcost, prov, disk, qcosts = self.est_cost(op,strat)
+    def get_opcost(self, op, strat, runid = None):
+        opcost, prov, disk, qcosts = self.est_cost(op,strat, runid=runid)
         return opcost
 
-    def get_disk(self, op, strat):
-        opcost, prov, disk, qcosts = self.est_cost(op,strat)
+    def get_disk(self, op, strat, runid = None):
+        opcost, prov, disk, qcosts = self.est_cost(op,strat, runid=runid)
         return disk / 1048576.0
 
-    def get_pqcost(self, op, strat):
-        opcost, prov, disk, qcosts = self.est_cost(op,strat)
+    def get_pqcost(self, op, strat, runid = None):
+        opcost, prov, disk, qcosts = self.est_cost(op,strat,runid=runid)
         return qcosts
         
 
-    def est_cost(self, op, strat):
+    def est_cost(self, op, strat, runid = None):
         opcosts = []
         provs = []
         disks = []
@@ -75,6 +84,7 @@ class ModelPredictor(object):
             key = (op, arridx)
             weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
             weights.append(weight)
+
         if sum(weights) < 1.0:
             weights = [1.0 / op.wrapper.nargs] * op.wrapper.nargs
         
@@ -98,8 +108,6 @@ class ModelPredictor(object):
             bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
 
             qcost = (fcost * fprob) + (bcost * (1.0 - fprob))
-            #print qcost, op, strat
-
 
             modes = strat.modes()
             for mode in modes:
@@ -110,8 +118,19 @@ class ModelPredictor(object):
             provs.append(prov)
             disks.append(disk)
             qcosts.append(weight*qcost)
-        return sum(opcosts), sum(provs), sum(disks), sum(qcosts)
-        return np.mean(opcosts), np.mean(provs), np.mean(disks), np.mean(qcosts)
+
+        opcosts = sum(opcosts)
+        provs = sum(provs)
+        disks = sum(disks)
+        qcosts = sum(qcosts)
+
+        if runid == None:
+            runid = self.workflow._runid
+        prob = self.probs.get(runid, 0.0)
+
+        if runid == self.workflow._runid:
+            return prob * opcosts, prob * provs, disks, prob * qcosts
+        return 0, 0, disks, prob * qcosts
 
 
     def _proc_queries(self):

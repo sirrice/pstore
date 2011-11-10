@@ -72,7 +72,7 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     b = matrix([1.0] * (len(ops)+len(existingops)))
 
 
-    c = [mp.get_pqcost(op,s) / (currun - r + 1) for r,op,s in trips]
+    c = [mp.get_pqcost(op,s,r) for r,op,s in trips]
 
     #c = map(lambda cost: cost * 100.0, c)
     minc = min(cost for cost in c) / 2.0
