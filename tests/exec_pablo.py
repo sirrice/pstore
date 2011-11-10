@@ -326,7 +326,6 @@ def create_workflow():
             set_ptr_wrapper_opt(s)
             return 'PTR_F_B'
 
-
         def opt(ds, qs, eids, runmode, disk, runcost):
             qs = map(list, qs)
             for q in qs:
@@ -404,12 +403,11 @@ if __name__ == '__main__':
         runcost = 100
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
         for disk in disksizes:
-            Runtime.instance().restore_pstores()
+            Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
             print runtype, disk
             if bmodel:
-
                 run_model(ds, runmode, runtype, disk, runcost, eids)
             else:
                 run(ds, runmode, runtype, disk, runcost, eids)

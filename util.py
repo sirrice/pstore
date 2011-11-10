@@ -1,7 +1,6 @@
-import numpy, os
+import numpy, os, random, math
 from operator import mul
 from scipy import ndimage
-import random
 
 
 def subarray(arr, coords):
@@ -71,6 +70,14 @@ def write_fits(arr, fname):
     if os.path.exists(outname): os.remove(outname)
     hdu.writeto(outname)    
 
+def zipf(n, l = 1.5):
+    hns = [1.0 / math.pow(i + 1, l) for i in xrange(n)]
+    c = sum(hns)
+    probs = [c / math.pow(i+1, l) for i in xrange(n)]
+    sumprobs = sum(probs)
+    probs = [prob / sumprobs for prob in probs]
+    ret = [sum(probs[:i+1]) for i in xrange(n)]
+    return ret
 
 
 def log_prov(log, prov=[]):
