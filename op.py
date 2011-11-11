@@ -121,8 +121,9 @@ class Wrapper(object):
         outputshape = output.shape
         del output
         self.outputs[run_id] = outputid
+        outputdisk = ArrayStore.instance().size(outputid)
 
-        Stats.instance().add_wrun(run_id, self.op, runtime, inputshapes, outputshape, pstore)
+        Stats.instance().add_wrun(run_id, self.op, runtime, inputshapes, outputshape, outputdisk, pstore)
         return outputid
 
 

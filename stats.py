@@ -58,11 +58,12 @@ class Stats(object):
                        # there are three variables
                        # oclustsize: the size of an output cluster (for pwrite_bulk)
                        # noutcells:  the number of output cells that have provenance attached
-                       # outputsize: the total size of the output array
+                       # outputsize: the total # cells in output array
+                       # outputdisk: the total on disk size of output array
             """create table workflow_run (eid int references exec(id), 
                      runid int, opid int, op varchar(20),
                      strat varchar(20), nptrs int,
-                     oclustsize int, noutcells int, outputsize int, opcost float)""",
+                     oclustsize int, noutcells int, outputsize int, opcost float, outputdisk int)""",
             """create table workflow_inputs (wid int references workflow_run(rowid),
                      arridx int,  area int)""",
 
@@ -170,7 +171,7 @@ class Stats(object):
             
         
     
-    def add_wrun(self, runid, op, cost, inputs, output, pstore):
+    def add_wrun(self, runid, op, cost, inputs, output, outputdisk, pstore):
         strat = str(pstore.strat)
         overhead = pstore.stats.get('write', 0)
         save = pstore.stats.get('write', 0)
@@ -186,9 +187,9 @@ class Stats(object):
 
         cur = self.conn.cursor()
 
-        cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?)",
+        cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?,?)",
                     (self.eid, runid, op.oid, str(op).strip(), strat,
-                     nptrs, oclustsize, noutcells, outputsize, cost))
+                     nptrs, oclustsize, noutcells, outputsize, cost, outputdisk))
         wid = cur.lastrowid
         cur.execute("insert into pstore_overhead values (?,?,?,?,?)",
                     (wid, save, overhead, serialize, disk))
