@@ -159,7 +159,7 @@ def run_exp(db, gen_config):
 
         # query the provenance store
         # vary query size
-        qsizes = [1, 10, 100, 1000, 100000]
+        qsizes = [1, 10, 100, 1000, 10000]
         qcosts = []
         for qsize in qsizes:
             q = []
@@ -372,15 +372,16 @@ if __name__ == '__main__':
             # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
         ]
 
-        noutputs = (100,10000,100000)
+        noutputs = (100,1000,10000,20000)
         fanins = [1,10,25,50,100]
         fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
         fanins = [1, 10, 25]#, 100]#, 200]
-
-        for strat in strats:
-            for fanin in fanins:
-                for fanout in fanouts:
-                    for noutput in noutputs:
+        for noutput in noutputs:
+            for strat in strats:
+                for fanin in fanins:
+                    for fanout in fanouts:
+                        if fanout > noutput:
+                            continue
                         yield (strat, fanin, fanout, noutput)
         
     if len(sys.argv) <= 1:
