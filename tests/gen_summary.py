@@ -108,7 +108,7 @@ def get_queries(rowid):
     queries = {}
     for pqid, f, opid in cur:
         if pqid not in queries: queries[pqid] = []
-        queries[pqid].append(opid)
+        queries[pqid].append((opid, f))
     return queries
 
 def get_qcosts():
@@ -128,7 +128,8 @@ def get_plot(runmode):
     # collect all the paths
     allpaths = get_allpaths(exps)
     for path, idx in allpaths.items():
-        table[idx] = []
+        qname = '%sQ %d' % (path[0][1] and 'F' or 'B', allpaths[path])  
+        table[qname] = []
 
 
     ymax = 0
@@ -145,22 +146,24 @@ def get_plot(runmode):
                     d[path].append(k)
         
         for path in allpaths:
+            qname = '%sQ %d' % (path[0][1] and 'F' or 'B', allpaths[path])            
             if path not in d:
-                table[allpaths[path]].append(0)
+                table[qname].append(0)
                 continue
             q = PQCOST % ('(%s)' % ','.join(map(str, d[path])))
 
             cur.execute(q)
             cost = cur.fetchone()[0]
-            table[allpaths[path]].append( cost)
+            #table[allpaths[path]].append( cost)
+            table[qname].append(cost)
 
             print rowid, d[path], int(cost), path
 
             
             ymax = max(ymax, cost)
 
-    table = dict([('Q%s' % k, v) for k,v in table.items()])
-    features = sorted(['Q%s' % v for v in allpaths.values()])
+    #table = dict([('Q%s' % k, v) for k,v in table.items()])
+    features = sorted(['%sQ %s' % (path[0][1] and 'F' or 'B', pid) for path, pid in allpaths.items()])
     #features = sorted(allpaths.values())
     draw(ymax*1.2, features, table, labels, 'costs%d' % runmode,#'%s_qcosts' % title,
          'querycost', plotargs={'yscale':'linear'})
@@ -180,14 +183,15 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
-    width = 0.05#0.037
-    colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', '#eeeeee']
+    width = 0.1#0.037
+    colors = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
     n = 0
     rects = []
     for feature in features:
         row = table[feature]
         print row
-        rect = ax.bar(ind + (width * n * 2), row, width, color=colors[n % len(colors)])
+        rect = ax.bar(ind + (width * n * 1.3), row, width,
+                      color=colors[n % len(colors)], linewidth = 0)
         rects.append(rect)
         n += 1
 

@@ -20,10 +20,11 @@ from cStringIO import StringIO
 import timeit
 
 
-
-markers = ['-', '--o']#, '--', '-.', ',', 'o', 'v', '^', '>', '1', '*', ':']
-colors = ['b', 'g', 'r', 'c', 'm', 'y']
-markers = ['%s%s' % (color, m) for color in colors for m in markers]
+linestyles = ['-', '--']
+markers = [None, 'o', '*']#, '--', '-.', ',', 'o', 'v', '^', '>', '1', '*', ':']
+colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+#markers = [(color, m, l) for color in colors for m in markers for l in linestyles]
+markers = [(color, m, l) for m in markers for l in linestyles for color in colors ]
 
 
 def setup_table(db):
@@ -59,7 +60,7 @@ def get_prov(config):
     fanin_n = 0
     for n in xrange(noutput):
         outcoords.append((n / 100, n % 100))
-        if outcoords >= fanout:
+        if len(outcoords) >= fanout:
             ptx, pty = randint(0, 99-side), randint(0, 99-side)
             for i in xrange(fanin):
                 incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )
@@ -81,7 +82,7 @@ def get_prov(config):
     return prov
 
 
-def run_exp(db, gen_config):
+def run_exp(db, configs):
     class BenchOp(Op):
         class Wrapper(object):
             def __init__(self, shape):
@@ -116,7 +117,7 @@ def run_exp(db, gen_config):
     setup_table(db)
     cur = db.cursor()    
 
-    for config in gen_configs():
+    for config in configs:
         strat, fanin, fanout, noutput = config
         Runtime.instance().set_strategy(op, strat)
         prov = get_prov(config)
@@ -181,13 +182,18 @@ def run_exp(db, gen_config):
     cur.close()
 
 
-def draw(db, ylabel, fanin):
+def draw(db, ylabel, fanin, noutput):
     cur = db.cursor()
-#    if fanin > 1:
+
     where = "strat != 'ONE_MANY_f' and strat != 'ONE_KEY_f' "
-    #else:
-     #   where = '1=1'
-    cur.execute("select strat, fanout, %s from stats where fanin = ? and %s order by strat" % (ylabel, where), (fanin,))
+    if ylabel == 'disk':
+        newylabel = 'disk / 1048576.0'
+    else:
+        newylabel = ylabel
+
+    sql = "select strat, fanout, %s from stats where fanin = ? and noutput = ? and %s order by strat"
+    sql = sql % (newylabel, where)
+    cur.execute(sql, (fanin, noutput))
     xs = set()
     ys = {}
     for row in cur.fetchall():
@@ -196,6 +202,11 @@ def draw(db, ylabel, fanin):
         vals = ys.get(strat, {})
         vals[fanout] = float(y)
         ys[strat] = vals
+
+    title = "%s      fanin = %s noutput = %d" % (ylabel, fanin, noutput)
+    fname = '%d_%s_%d' % (fanin,ylabel,noutput)
+    plot(title, xs, ys, fname, path='_figs/microexp')
+    return
 
     xs = sorted(xs)
     lines = []
@@ -209,8 +220,11 @@ def draw(db, ylabel, fanin):
     # draw the graph
     fig = plt.figure()
     ax = fig.add_subplot(111, ylim=[0,ymax])
+     
     for idx, (label, ys) in enumerate(lines):
-        ax.plot(xs, ys, markers[idx], label=label)
+        c,m,l = markers[idx]
+        ax.plot(xs, ys, color = c, marker=m, linestyle=l, label=label, linewidth=1.5)        
+        #ax.plot(xs, ys, markers[idx], label=label)
 
     fontP = FontProperties()
     fontP.set_size('small')
@@ -227,47 +241,103 @@ def draw(db, ylabel, fanin):
 
 
 
-def stacked(db, strat, labels, fanin):
+def stacked(db, strat, labels, fanin, noutput=10000):
     cur = db.cursor()
     xs = set()
     ys = {}
 
     for label in labels:
-#        cur.execute("select fanout, %s from stats where fanin = ? and strat = ? order by fanout" % label, (fanin, strat))
-        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
+        sql = """select fanout, avg(%s) from stats
+                 where fanin = ? and strat = ? and noutput = ?
+                group by fanout order by fanout""" % label
+        cur.execute(sql, (fanin, strat, noutput))
+#        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
         ys[label] = {}
         for row in cur.fetchall():
             fanout, y = row
             xs.add(int(fanout))
             ys[label][fanout] = float(y)
 
+    title = "%s     fanin = %s   noutput = %d" % (strat, fanin, noutput)
+    fname = "%s_%s_%s" % ( noutput, strat, fanin)
+    plot(title, xs, ys, fname)
+    cur.close()
+
+    
+def queries(db, fanin, noutput, qsize=10000):
+    cur = db.cursor()
+    xs = set()
+    ys = {}
+    print "executing", fanin, noutput
+    sql = """select fanout, strat, backward, cost from stats, qcosts
+             where qcosts.sid = stats.id and fanin = ? and noutput = ? and qsize = ? order by fanout""" 
+
+    cur.execute(sql, (fanin, noutput, qsize))
+
+    for row in cur.fetchall():
+
+        fanout, strat, backward, cost = row
+        #if qsize >= 1000: qsize = '%dk' % (qsize / 1000)
+        #label = 'qsize%s_%s' % (qsize,backward and 'b' or 'f')
+        label = '%s_%s' % (strat,backward and 'b' or 'f')            
+        y = cost
+        xs.add(int(fanout))
+        if label not in ys: ys[label] = {}
+        ys[label][fanout] = float(y)
+
+    title = "noutput=%d     fanin = %s" % (noutput, fanin)
+    fname = "noutput%s_fanin%s" % (noutput, fanin)
+    plot(title, xs, ys, fname)
+    cur.close()
+
+    
+
+def plot(title, xs, ys, fname, path = '_figs/microperstrat'):
     xs = sorted(xs)
     lines = []
     labels = []
-    ymax = 0
-    for label in ys:
+    for label in sorted(ys.keys()):
         labels.append(label)
         lines.append((label, [ys[label].get(x, 0) for x in xs]))
-    ymax = max(map(max, map(lambda x: x[1], lines))) * 1.2
+    ymax = max(map(max, map(lambda x: x[1], lines)))
+    ymin = min(map(min, map(lambda x: x[1], lines)))
+
+    if ymin == 0:
+        if ymax > 100:
+            yscale = 'log'
+            mult = 1000
+        else:
+            yscale = 'linear'
+            mult = 1.5
+    elif ymax / ymin > 50:
+        yscale = 'log'
+        ymin = ymin / 10
+        mult = 1000
+    else:
+        yscale = 'linear'
+        mult = 1.5
+        ymin = 0
+
 
     # draw the graph
     fig = plt.figure()
-    ax = fig.add_subplot(111, ylim=[0,ymax])
+    ax = fig.add_subplot(111, ylim=[ymin,ymax * mult], yscale = yscale)
+
     for idx, (label, ys) in enumerate(lines):
-        ax.plot(xs, ys, markers[idx], label=label)
+        c,m,l = markers[idx]
+        ax.plot(xs, ys, color = c, marker=m, linestyle=l, label=label, linewidth=1.5)
 
     fontP = FontProperties()
     fontP.set_size('small')
     ax.legend(loc='upper center',# bbox_to_anchor=(0.5, 1.05),
               ncol=3, fancybox=True, shadow=True, prop=fontP)        
 #    ax.legend(loc=2)
-    ax.set_ylabel(strat)
+    ax.set_ylabel('time (sec)')
     ax.set_xlabel('fanout')
-    ax.set_title("%s      fanin = %s" % (strat, fanin))
-    plt.savefig('_figs/microperstrat/%s.png' % '%s_%s' % (strat, fanin), format='png')
+    ax.set_title(title)
+    plt.savefig('%s/%s.png' % (path,fname), format='png')
     plt.cla()
     plt.clf()
-    cur.close()
 
 
 def fit(db, attr, f):
@@ -304,21 +374,37 @@ def fit(db, attr, f):
 def viz(db, fanins):
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin', 'serout',
               'serin+serout-bdbcost-ser', 'serout-bdbcost', 'disk')
+    labels = ('wcost', 'bdbcost', 'disk')
     for label in labels:
         for fanin in fanins:
-            draw(db, label, fanin)
+            for noutput in (100, 1000, 10000):
+                draw(db, label, fanin, noutput)
 
 def stackviz(db, strats, fanins):
     
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin','serout',
               'serout-bdbcost', 'disk/1048576.0')
+    labels = ('wcost', 'bdbcost', 'serin','serout')
+#              'disk/1048576.0')
     for strat in strats:
         for fanin in fanins:
-            try:
-                stacked(db, str(strat), labels, fanin)
-            except:
-                pass
+            for noutput in (100, 1000, 10000):
+                try:
+                    stacked(db, str(strat), labels, fanin, noutput)
+                except Exception ,e:
+                    #raise
+                    print e, strat, fanin
 
+
+def queriesviz(db, fanins, noutputs):
+    for fanin in fanins:
+        for noutput in noutputs:
+            try:
+                queries(db, fanin, noutput)
+            except Exception, e:
+                print e, fanin, noutput
+
+    
 
 
 def bbox(coords):
@@ -342,40 +428,41 @@ if __name__ == '__main__':
 
     
     db = sqlite3.connect('./_output/pstore_microbench.db')
-    
 
-    def gen_configs():
+    strats = [
 
-        strats = [
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
+        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
 
-            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
-            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
-            #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
-            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
-            
-            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
-            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-            #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
 
 
-            # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
-            # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
+        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
+        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
 
-            # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
-            # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
-            # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
-            # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
-        ]
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
+    ]
 
-        noutputs = (100,1000,10000,20000)
-        fanins = [1,10,25,50,100]
-        fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
-        fanins = [1, 10, 25]#, 100]#, 200]
+    noutputs = (100,1000,10000)
+    fanins = [1,10,25,50,100]
+    fanouts = [10, 100,1000]#10,25,50,100,150,200,250,1000]
+    fanins = [1, 10, 25]#, 100]#, 200]
+
+
+    def gen_configs(strats, noutputs, fanins, fanouts):
+
         for noutput in noutputs:
             for strat in strats:
                 for fanin in fanins:
@@ -385,15 +472,17 @@ if __name__ == '__main__':
                         yield (strat, fanin, fanout, noutput)
         
     if len(sys.argv) <= 1:
-        print "python pstore_micro.py [run | viz | all]"
+        print "python pstore_micro.py [run | viz | stack | query | fit | all]"
         exit()
     mode = sys.argv[1]
     if mode in ( 'run', 'all'):    
-        run_exp(db, gen_configs)
+        run_exp(db, gen_configs(strats, noutputs, fanins, fanouts))
     if mode in ( 'viz', 'all'):            
         viz(db, fanins)
     if mode in ( 'stack', 'all'):            
-        stackviz(db, strats, fanouts)
+        stackviz(db, strats, fanins)
+    if mode in ( 'query', 'all'):
+        queriesviz(db, fanins, noutputs)
     if mode in ( 'fit', 'all' ):
         def fgen(f):
             def _f(xs, a,b,c):
