@@ -2,7 +2,7 @@ import sys, random
 sys.path.insert(0, "../")
 sys.path.insert(0, "../../")
 
-from bench_util import *
+#from bench_util import *
 from models import *
 from provstore import *
 from op import *
@@ -370,7 +370,7 @@ if __name__ == '__main__':
             # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
         ]
 
-        noutput = 100000
+        noutput = 100
         fanins = [1,10,25,50,100]
         fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
         fanins = [1, 10, 25]#, 100]#, 200]
