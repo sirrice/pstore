@@ -26,7 +26,62 @@ colors = ['b', 'g', 'r', 'c', 'm', 'y']
 markers = ['%s%s' % (color, m) for color in colors for m in markers]
 
 
-def run_exp(db, strats, fanins, fanouts, noutput):
+def setup_table(db):
+    cur = db.cursor()
+    create = """create table stats(id integer primary key autoincrement, strat varchar(128),
+                fanin int, fanout int, noutput int,
+                ser float, wcost float, updatecost float, bdbcost float, serin float, serout float, disk int)"""
+    try:
+        cur.execute(create)
+        db.commit()
+    except Exception, e:
+        print e
+        db.rollback()
+
+    create = "create table qcosts(sid int references stats(id), qsize int, backward bool, cost float, nres int)"
+    try:
+        cur.execute(create)
+        db.commit()
+    except  Exception, e:
+        print e
+        db.rollback()
+        
+    cur.close()
+
+
+
+def get_prov(config):
+    strat, fanin, fanout, noutput = config    
+    side = int(math.ceil(math.pow(float(fanin), 0.5))) 
+    prov = []
+    incoords = []
+    outcoords = []
+    fanin_n = 0
+    for n in xrange(noutput):
+        outcoords.append((n / 100, n % 100))
+        if outcoords >= fanout:
+            ptx, pty = randint(0, 99-side), randint(0, 99-side)
+            for i in xrange(fanin):
+                incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )
+                #incoords.append((fanin_n / 100, fanin_n % 100))
+                fanin_n += 1
+            prov.append((outcoords, incoords))
+            outcoords = []
+            incoords = []
+    if len(outcoords) > 0:
+        ptx, pty = randint(0, 99-side), randint(0, 99-side)
+        for i in xrange(fanin):
+            incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )                        
+            #incoords.append( (random.randint(0, 99), random.randint(0, 99)) )
+            #incoords.append((fanin_n / 100, fanin_n % 100))
+            fanin_n += 1
+        prov.append((outcoords, incoords))
+        outcoords = []
+
+    return prov
+
+
+def run_exp(db, gen_config):
     class BenchOp(Op):
         class Wrapper(object):
             def __init__(self, shape):
@@ -48,88 +103,81 @@ def run_exp(db, strats, fanins, fanouts, noutput):
             super(BenchOp, self).__init__()
             self.wrapper = BenchOp.Wrapper(shape)
             self.workflow = None
+            self.shape = shape
 
         def run(self, inputs, run_id):
             pass
 
         def output_shape(self, run_id):
-            return (100,100)
+            return self.shape
 
     op = BenchOp((100,100))
-    
     runid = 1
+    setup_table(db)
+    cur = db.cursor()    
 
-    cur = db.cursor()
-    create = """create table stats(strat varchar(128), fanin int, fanout int, ser float, wcost float,
-    updatecost float, bdbcost float, serin float, serout float, disk int)"""
-    try:
-        cur.execute(create)
-        db.commit()
-    except:
-        db.rollback()
-    cur.close()
-    cur = db.cursor()
-
-    for strat in strats:
+    for config in gen_configs():
+        strat, fanin, fanout, noutput = config
         Runtime.instance().set_strategy(op, strat)
-        for fanin in fanins:
-            for fanout in fanouts:
-                side = int(math.ceil(math.pow(float(fanin), 0.5))) 
-                prov = []
-                incoords = []
-                outcoords = []
-                fanin_n = 0
-                for n in xrange(noutput):
-                    outcoords.append((n / 100, n % 100))
-                    if outcoords >= fanout:
-                        ptx, pty = randint(0, 99-side), randint(0, 99-side)
-                        for i in xrange(fanin):
-                            incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )
-                            #incoords.append((fanin_n / 100, fanin_n % 100))
-                            fanin_n += 1
-                        prov.append((outcoords, incoords))
-                        outcoords = []
-                        incoords = []
-                if len(outcoords) > 0:
-                    ptx, pty = randint(0, 99-side), randint(0, 99-side)
-                    for i in xrange(fanin):
-                        incoords.append( (randint(0,side) + ptx,randint(0,side) + pty) )                        
-                        #incoords.append( (random.randint(0, 99), random.randint(0, 99)) )
-                        #incoords.append((fanin_n / 100, fanin_n % 100))
-                        fanin_n += 1
-                    prov.append((outcoords, incoords))
-                    outcoords = []
-                
+        prov = get_prov(config)
 
-                costs = []
-                for iterid in xrange(2):
-                    pstore = op.pstore(runid)
-                    runid += 1
-                    for outcoords, incoords in prov:
-                        if pstore.uses_mode(Mode.PTR):
-                            pstore.write(outcoords, incoords)
-                        else:
-                            pstore.write(outcoords, 's' * 10)
-                                
-                    pstore.close()
-                    updatecost = pstore.get_stat('update_stats', 0)
-                    bdbcost = pstore.get_stat('bdb', 0)
-                    serin = pstore.get_stat('serin', 0)
-                    serout = pstore.get_stat('serout', 0)
-                    ser = pstore.get_stat('_serialize', 0)
-                    wcost = pstore.get_stat('write', 0)
-                    disk = pstore.disk()
-                    runcosts = (ser, wcost, updatecost, bdbcost, serin, serout, disk)
-                    costs.append(runcosts)
+        # data loading costs
+        costs = []
+        for iterid in xrange(1):
+            pstore = op.pstore(runid)
+            runid += 1
+            for outcoords, incoords in prov:
+                if pstore.uses_mode(Mode.PTR):
+                    pstore.write(outcoords, incoords)
+                else:
+                    pstore.write(outcoords, 's' * 10)
+            pstore.close()
 
-                costs = costs[-2:]
-                costs = map(np.mean, zip(*costs))
 
-                params = [str(strat), fanin, fanout]
-                params.extend(costs)
-                sql = "insert into stats values(%s)" % (','.join(["?"]*(len(params)))) 
-                cur.execute(sql, tuple(params))
-                db.commit()
+            updatecost = pstore.get_stat('update_stats', 0)
+            bdbcost = pstore.get_stat('bdb', 0)
+            serin = pstore.get_stat('serin', 0)
+            serout = pstore.get_stat('serout', 0)
+            ser = pstore.get_stat('_serialize', 0)
+            wcost = pstore.get_stat('write', 0)
+            disk = pstore.disk()
+            runcosts = (ser, wcost, updatecost, bdbcost, serin, serout, disk)
+            costs.append(runcosts)
+
+        #costs = costs[-2:]
+        costs = map(np.mean, zip(*costs))
+
+        params = [str(strat), fanin, fanout, noutput]
+        params.extend(costs)
+        sql = """insert into stats(strat, fanin, fanout, noutput, ser,
+                                   wcost, updatecost, bdbcost, serin, serout, disk)
+                  values(%s)""" % (','.join(["?"]*(len(params)))) 
+        cur.execute(sql, tuple(params))
+        sid = cur.lastrowid
+        
+        
+
+        # query the provenance store
+        # vary query size
+        qsizes = [1, 10, 100, 1000, 100000]
+        qcosts = []
+        for qsize in qsizes:
+            q = []
+            for i in xrange(qsize):
+                q.append((random.randint(0, 99), random.randint(0,99)))
+            q = Scan(q)
+            qcosts.append([])
+            for backward in (True, False):
+                nres = 0
+                start = time.time()
+                for res in pstore.join(q, 0, backward):
+                    nres += 1
+                cost = time.time() - start
+
+                sql = "insert into qcosts values (?, ?, ?, ?, ?)"
+                cur.execute(sql, (sid, qsize, backward, cost, nres))
+
+        db.commit()
     cur.close()
 
 
@@ -296,35 +344,48 @@ if __name__ == '__main__':
     db = sqlite3.connect('./_output/pstore_microbench.db')
     
 
-    strats = [
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+    def gen_configs():
 
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        strats = [
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
 
-        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
-        # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
-        
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
+            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
+            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
+            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
+            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
+            
+            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+
+            # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
+            # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
+
+            # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
+            # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+            # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
+            # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
         ]
 
-    noutput = 50000
-    fanins = [1,10,25,50,100,200]
-    fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
-    fanins = [1, 10, 25, 50]#, 100]#, 200]
+        noutput = 100000
+        fanins = [1,10,25,50,100]
+        fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
+        fanins = [1, 10, 25]#, 100]#, 200]
+
+        for strat in strats:
+            for fanin in fanins:
+                for fanout in fanouts:
+                    yield (strat, fanin, fanout, noutput)
+        
     if len(sys.argv) <= 1:
         print "python pstore_micro.py [run | viz | all]"
         exit()
     mode = sys.argv[1]
     if mode in ( 'run', 'all'):    
-        run_exp(db, strats, fanins, fanouts, noutput)
+        run_exp(db, gen_configs)
     if mode in ( 'viz', 'all'):            
         viz(db, fanins)
     if mode in ( 'stack', 'all'):            

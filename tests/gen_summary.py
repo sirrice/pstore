@@ -33,7 +33,7 @@ ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
               WHERE pp.pqid = pq.rowid and pq.eid = ?
               ORDER BY pq.forward, pq.rowid, pp.idx;"""
 
-stats = Stats.instance('./results/lsstfull.db.nov.10.2011')
+stats = Stats.instance('./results/lsstfull.db.nov.10.2011.fastforward')
 #stats = Stats.instance('./_output/pablostats.db')
 #stats = Stats.instance('./_output/stats.db')
 #stats = Stats.instance('./_output/lsstfull.db')
@@ -177,7 +177,7 @@ def get_plot(runmode):
 def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     # draw the graph
     figparams = matplotlib.figure.SubplotParams(top=0.9)
-    fig = plt.figure(figsize=(20, 5), subplotpars=figparams)
+    fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
     width = 0.05#0.037
