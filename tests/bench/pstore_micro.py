@@ -347,19 +347,21 @@ if __name__ == '__main__':
     def gen_configs():
 
         strats = [
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
 
             Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
-            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
-            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
+            Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
+            #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
             Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
             
             Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
             Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-            Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+            #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
             Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+            Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+
 
             # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
             # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
@@ -370,7 +372,7 @@ if __name__ == '__main__':
             # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
         ]
 
-        noutput = 100
+        noutputs = (100,10000,100000)
         fanins = [1,10,25,50,100]
         fanouts = [1,100,1000]#10,25,50,100,150,200,250,1000]
         fanins = [1, 10, 25]#, 100]#, 200]
@@ -378,7 +380,8 @@ if __name__ == '__main__':
         for strat in strats:
             for fanin in fanins:
                 for fanout in fanouts:
-                    yield (strat, fanin, fanout, noutput)
+                    for noutput in noutputs:
+                        yield (strat, fanin, fanout, noutput)
         
     if len(sys.argv) <= 1:
         print "python pstore_micro.py [run | viz | all]"
