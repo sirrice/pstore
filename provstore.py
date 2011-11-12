@@ -2,6 +2,7 @@ import struct, math, time, random
 import bsddb3 as bsddb
 from StringIO import StringIO
 from operator import mul, or_, and_
+from ctypes import create_string_buffer
 
 from strat import *
 from queryresult import *
@@ -443,6 +444,44 @@ class DiskStore(IPstore):
         self._serialize(enc_outcoords, outbuf, self.spec.outcoords)
         return outbuf.getvalue()
 
+
+    @instrument
+    def _serialize_format(self, counts, mode):
+        if mode == Spec.COORD_ONE:
+            return '%dI' % sum(counts)
+        elif mode == Spec.COORD_MANY:
+            return '%dI' % (len(counts) + sum(counts))
+        elif mode == Spec.BOX:
+            return '%dI' % (4 * len(counts))
+        elif mode == Spec.GRID:
+            raise RuntimeError
+        elif mode == Spec.KEY:
+            return '%dI' % (len(counts) + sum(counts))
+        elif mode == Spec.BINARY:
+            raise RuntimeError
+        elif mode == Spec.NONE:
+            return ''
+        
+    def _ser(self, fmt, counts, encs):
+        if mode == Spec.COORD_ONE:
+            return struct.pack(fmt, *encs)
+        elif mode == Spec.COORD_MANY:
+            
+            return '%dI' % (len(counts) + sum(counts))
+        elif mode == Spec.BOX:
+            return '%dI' % (4 * len(counts))
+        elif mode == Spec.GRID:
+            raise RuntimeError
+        elif mode == Spec.KEY:
+            return '%dI' % (len(counts) + sum(counts))
+        elif mode == Spec.BINARY:
+            raise RuntimeError
+        elif mode == Spec.NONE:
+            return ''
+        
+
+
+
     @instrument
     def _serialize(self, data, buf, mode):
         """
@@ -468,7 +507,8 @@ class DiskStore(IPstore):
             ser_coords = StringIO()
             self._serialize(data, ser_coords, Spec.COORD_MANY)
             ser_coords = ser_coords.getvalue()
-            ser_key = 'key:%s' % str(hash(ser_coords))     # poor man's key gen
+            h = hash(ser_coords) % 4294967296
+            ser_key = 'key:%s' % str(h)
             self.bdb[ser_key] = ser_coords
             s = struct.pack("I%ds" % (len(ser_key)), len(ser_key), ser_key)
             buf.write(s)
@@ -807,6 +847,11 @@ class PStore2(DiskStore):
 class PStore3(DiskStore):
     def __init__(self, op, run_id, f, strat):
         super(PStore3, self).__init__(op, run_id, f, strat)
+        self.outcache = []
+        self.outcounts = []
+        self.incache = [[] for n in xrange(self.nargs)]
+        self.incounts = [[] for n in xrange(self.nargs)]
+
 
     def uses_mode(self, mode):
         return mode == Mode.PTR
@@ -832,6 +877,80 @@ class PStore3(DiskStore):
     @instrument
     def write(self, outcoords, *incoords_arr):
         #self.update_stats(outcoords, *incoords_arr)
+
+        if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
+            self.outcache.append((0, len(outcoords)))
+        self.outcache.extend(outcoords)
+        self.outcounts.append(len(outcoords))
+
+        for cache, counts, incoords in zip(self.incache,
+                                           self.incounts,
+                                           incoords_arr):
+            if self.spec.payload in (Spec.COORD_MANY, Spec.KEY):
+                cache.append((0, len(incoords)))
+            cache.extend(incoords)
+            counts.append(len(incoords))
+
+        if min(map(len,self.incache), len(self.outcache)) >  1000:
+            self.flush()
+
+    def flush(self):
+        # grid and bounding box suck because they don't really scale
+
+        oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
+        iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
+                  for arridx, incoords in enumerate(self.incache) ]
+
+        fmt = self._serialize_format(self.outcounts, self.spec.outcoords)
+        keybuf = create_string_buffer(struct.calcsize(fmt))
+        struct.pack_into(fmt, keybuf, 0, *oencs)
+
+        valbufs = []
+        for arridx, (counts, incoords) in  enumerate(zip(self.incounts, self.incache)):
+            iencs = [ self.enc_in(incoord, arridx) for incorod in incoords ]
+            fmt = self._serialize_format(counts, self.spec.payload)
+            valbuf = create_string_buffer(struct.calcsize(fmt))
+            struct.pack_into(fmt, valbuf, 0, *iencs)
+            valbufs.append(valbuf)
+
+        def foo(buf, count, offset, mode):
+            if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
+                end = offset + 4 * (1 + count)
+            elif self.spec.outcoords == Spec.BOX:
+                end = offset + 16
+            elif self.spec.outcoords == Spec.COORD_ONE:
+                end = offset + 4
+            return buf[offset:end], end
+
+        alldata = [keybuf]
+        alldata.extend(valbufs)
+        allcounts = [self.outcounts]
+        allcounts.extend(self.incounts)
+        offsets = [0] * len(alldata)
+        for counts in zip(*allcounts):
+            key, vals = None, []
+            for idx in xrange(len(offsets)):
+                count, buf, offset = counts[idx], alldata[idx], offsets[idx]
+                ba, offset = foo(buf, count, offset, idx == 0 and self.spec.outcoords or self.spec.payload)
+                offsets[idx] = offset
+                if idx == 0:
+                    key = ba
+                else:
+                    vals.append(ba)
+            self.bdb[key] = ''.join(vals)
+        print len(self.bdb)
+
+        # for ocount, incounts in self.outcounts:
+        #     key, off = foo(keybuf, ocount, off, self.spec.outcoords)
+        #     self.bdb[key] = ''
+
+
+        self.outcache = []
+        self.outcounts = []
+        self.incache = [[] for n in xrange(self.nargs)]
+        self.incounts = [[] for n in xrange(self.nargs)]
+        return
+        
 
         start = time.time()
         val = StringIO()
@@ -1015,6 +1134,11 @@ class IBox(object):
             if payload:
                 for coord in self.extract_incells((key, payload), arridx):
                     yield coord
+
+    def close(self):
+        self.flush()        
+        super(PStore3, self).close()
+
 
 class PStore3Box(IBox,PStore3):
     def __init__(self, *args, **kwargs):
