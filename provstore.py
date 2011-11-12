@@ -874,11 +874,6 @@ class PStore3(DiskStore):
 
                     old_encs = self.extract_allincells_enc((None, self.bdb[keystr]))
 
-                    # buf = StringIO(self.bdb[keystr])
-                    # old_encs = []
-                    # for idx in xrange(len(incoords_arr)):
-                    #     old_encs.append(self._parse(buf, self.spec.payload))
-
                     newval = StringIO()
                     for incoords, old_enc in zip(incoords_arr, old_encs):
                         encs = map(lambda coord: self.enc_in(coord, arridx), incoords)

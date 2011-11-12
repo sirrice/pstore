@@ -360,7 +360,7 @@ class Workflow(object):
             wlog.debug( 'Fpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
 
         end = time.time()
-        print "forward query cost", (end-start)
+        #print "forward query cost", (end-start)
         return DedupQuery(child, shape)
         return NBDedupQuery(q)
 

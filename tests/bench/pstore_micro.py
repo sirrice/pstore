@@ -23,8 +23,8 @@ import timeit
 linestyles = ['-', '--']
 markers = [None, 'o', '*']#, '--', '-.', ',', 'o', 'v', '^', '>', '1', '*', ':']
 colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-#markers = [(color, m, l) for color in colors for m in markers for l in linestyles]
-markers = [(color, m, l) for m in markers for l in linestyles for color in colors ]
+markers = [(color, m, l) for color in colors for m in markers for l in linestyles]
+#markers = [(color, m, l) for m in markers for l in linestyles for color in colors ]
 
 
 def setup_table(db):
@@ -204,40 +204,11 @@ def draw(db, ylabel, fanin, noutput):
         ys[strat] = vals
 
     title = "%s      fanin = %s noutput = %d" % (ylabel, fanin, noutput)
-    fname = '%d_%s_%d' % (fanin,ylabel,noutput)
+    fname = '%s_%s_%s' % (ylabel, fanin, noutput)
     plot(title, xs, ys, fname, path='_figs/microexp')
+    cur.close()
     return
 
-    xs = sorted(xs)
-    lines = []
-    labels = []
-    ymax = 0
-    for strat in ys:
-        labels.append(strat)
-        lines.append((strat, [ys[strat].get(x, 0) for x in xs]))
-    ymax = max(map(max, map(lambda x: x[1], lines))) * 1.2
-
-    # draw the graph
-    fig = plt.figure()
-    ax = fig.add_subplot(111, ylim=[0,ymax])
-     
-    for idx, (label, ys) in enumerate(lines):
-        c,m,l = markers[idx]
-        ax.plot(xs, ys, color = c, marker=m, linestyle=l, label=label, linewidth=1.5)        
-        #ax.plot(xs, ys, markers[idx], label=label)
-
-    fontP = FontProperties()
-    fontP.set_size('small')
-    ax.legend(loc='upper center',# bbox_to_anchor=(0.5, 1.05),
-              ncol=3, fancybox=True, shadow=True, prop=fontP)        
-#    ax.legend(loc=2)
-    ax.set_ylabel(ylabel)
-    ax.set_xlabel('fanout')
-    ax.set_title("%s      fanin = %s" % (ylabel, fanin))
-    plt.savefig('_figs/microexp/%s.png' % '%d_%s' % (fanin, ylabel), format='png')
-    plt.cla()
-    plt.clf()
-    cur.close()
 
 
 
@@ -257,6 +228,7 @@ def stacked(db, strat, labels, fanin, noutput=10000):
             fanout, y = row
             xs.add(int(fanout))
             ys[label][fanout] = float(y)
+        print ys[label], strat, label, fanin
 
     title = "%s     fanin = %s   noutput = %d" % (strat, fanin, noutput)
     fname = "%s_%s_%s" % ( noutput, strat, fanin)
@@ -302,25 +274,26 @@ def plot(title, xs, ys, fname, path = '_figs/microperstrat'):
     ymax = max(map(max, map(lambda x: x[1], lines)))
     ymin = min(map(min, map(lambda x: x[1], lines)))
 
-    if ymin == 0:
-        if ymax > 100:
-            yscale = 'log'
-            mult = 1000
-        else:
-            yscale = 'linear'
-            mult = 1.5
-    elif ymax / ymin > 50:
-        yscale = 'log'
-        ymin = ymin / 10
-        mult = 1000
-    else:
-        yscale = 'linear'
-        mult = 1.5
-        ymin = 0
+    # if ymin == 0:
+    #     if ymax > 100:
+    #         yscale = 'log'
+    #         mult = 100
+    #     else:
+    #         yscale = 'linear'
+    #         mult = 1.5
+    # elif ymax / ymin > 50:
+    #     yscale = 'log'
+    #     ymin = ymin / 10
+    #     mult = 100
+    # else:
+    yscale = 'linear'
+    mult = 1.5
+    ymin = 0
+
 
 
     # draw the graph
-    fig = plt.figure()
+    fig = plt.figure(figsize=(10, 7))
     ax = fig.add_subplot(111, ylim=[ymin,ymax * mult], yscale = yscale)
 
     for idx, (label, ys) in enumerate(lines):
@@ -384,7 +357,7 @@ def stackviz(db, strats, fanins):
     
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin','serout',
               'serout-bdbcost', 'disk/1048576.0')
-    labels = ('wcost', 'bdbcost', 'serin','serout')
+    labels = ('wcost', 'bdbcost', 'serin','serout', 'ser')
 #              'disk/1048576.0')
     for strat in strats:
         for fanin in fanins:

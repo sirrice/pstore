@@ -33,8 +33,8 @@ ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
               WHERE pp.pqid = pq.rowid and pq.eid = ?
               ORDER BY pq.forward, pq.rowid, pp.idx;"""
 
-stats = Stats.instance('./results/lsstfull.db.nov.10.2011.fastforward')
-#stats = Stats.instance('./_output/pablostats.db')
+#stats = Stats.instance('./results/lsstfull.db.nov.10.2011.fastforward')
+stats = Stats.instance('./_output/pablostats.db')
 #stats = Stats.instance('./_output/stats.db')
 #stats = Stats.instance('./_output/lsstfull.db')
 conn = stats.conn
@@ -183,7 +183,7 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
     ind = np.arange(len(table[table.keys()[0]]))#3)
-    width = 0.1#0.037
+    width = 0.07#0.037
     colors = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
     n = 0
     rects = []
@@ -201,11 +201,12 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     #           ncol=3, fancybox=True, shadow=True, prop=fontP)        
     plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features],
                   loc='upper center', ncol=5, fancybox=True, shadow=True, prop=fontP,
-                  bbox_to_anchor=(0.5, .93))
+                  bbox_to_anchor=(0.5, .85))
     ax.set_ylabel(ylabel)
     ax.set_xlabel('Storage Strategies')
     ax.set_xticks(ind+(width * 5))
     ax.set_xticklabels(labels)
+    ax.set_title(title)
     ax.grid(True)
     plt.savefig('./figs/%s.png' % (title), format='png')
     plt.cla()
@@ -213,8 +214,9 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
 
 
 if len(sys.argv) > 1:
-    runmode = int(sys.argv[1])
-    get_plot(runmode)
+    for runmode in sys.argv[1:]:
+        runmode = int(runmode)
+        get_plot(runmode)
 
 #get_plot(1)
 #get_plot(3)

@@ -289,15 +289,15 @@ def create_workflow():
                     Runtime.instance().set_strategy(op, Strat.single(Mode.QUERY, Spec.default()))
 
 
-        def ptr0():
+        def pt1():
             strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
             return 'PTMAP_ONE_KEY_B'
 
-        def ptr00():
-            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.KEY), True)
+        def pt2():
+            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.KEY, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTMAP_MANY_KEY_B'
+            return 'PTMAP_KEY_KEY_B'
 
         def ptr1():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
@@ -305,9 +305,9 @@ def create_workflow():
             return 'PTR_ONE_KEY_B'
 
         def ptr2():
-            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True)
+            strat = Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_MANY_KEY_B'
+            return 'PTR_KEY_KEY_B'
 
         def ptr3():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)
@@ -315,13 +315,13 @@ def create_workflow():
             return 'PTR_ONE_KEY_F'
 
         def ptr4():
-            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)
+            strat = Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_MANY_KEY_F'
+            return 'PTR_KEY_KEY_F'
 
         def ptr5():
-            buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)]),
-                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)])]
+            buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)])]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
             return 'PTR_F_B'
@@ -342,9 +342,9 @@ def create_workflow():
 
             return 'opt'
 
-        return [stat, ptr4, opt]#, query_opt, opt, ptr1, ptr3, ptr5]
-        [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
-         ptr4, ptr5, opt]
+        return [noop, stat, query_opt, ptr1, ptr2, ptr5]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
+        # [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
+        #  ptr4, ptr5, opt]
     
     return w, run, run_model, get_strats, get_qs
 
