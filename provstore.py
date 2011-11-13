@@ -873,6 +873,10 @@ class PStore3(DiskStore):
         self.fanins = map(sum, zip(self.fanins, map(lambda x: noutcells * x, fanins)))
         self.noutcells += noutcells
         self.ncalls += 1
+
+
+    def add_to_cache(self, cache, counts, coords, mode ):
+        pass
         
     @instrument
     def write(self, outcoords, *incoords_arr):
@@ -880,10 +884,20 @@ class PStore3(DiskStore):
         #return
         #self.update_stats(outcoords, *incoords_arr)
 
-        if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
-            self.outcache.append((0, len(outcoords)))
-        self.outcache.extend(outcoords)
-        self.outcounts.append(len(outcoords))
+        if Spec.BOX == self.spec.outcoords:
+            box = bbox(outcoords)
+            self.outcache.extend(box)
+            self.outcounts.append(2)
+        elif Spec.GRID == self.spec.outcoords:
+            grid = gengrid(outcoords)
+            self.outcache.extend(grid[0])
+            self.outcache.append( (0, len(grid[1])) )
+            self.outcounts.append(2 + 1 + len(grid[1]))
+        else:
+            if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
+                self.outcache.append((0, len(outcoords)))
+            self.outcache.extend(outcoords)
+            self.outcounts.append(len(outcoords))
 
         for cache, counts, incoords in zip(self.incache,
                                            self.incounts,
