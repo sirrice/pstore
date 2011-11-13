@@ -34,16 +34,21 @@ def dec(val, shape):
 def bbox(coords):
     if not len(coords):
         return ((-1, -1), (-1,-1))
+    if len(coords) == 1:
+        return (coords[0], coords[0])
+    minx, maxx, miny, maxy = None, None, None, None
     minc, maxc = None, None
     for coord in coords:
-        if minc == None:
-            minc = coord
-            maxc = coord
+        if minx == None:
+            minx = maxx = coord[0]
+            miny = maxy = coord[1]
         else:
-            minc = map(min, zip(minc, coord))
-            maxc = map(max, zip(maxc, coord))
+            minx = min(minx, coord[0])
+            maxx = max(maxx, coord[0])
+            miny = min(miny, coord[1])
+            maxy = max(maxy, coord[1])
 
-    return (minc, maxc)
+    return ((minx, miny), (maxx, maxy))
 
 
 __grid__ = None
@@ -63,10 +68,10 @@ def gengrid(coords):
         __gcells__ = reduce(mul, __grid__.shape)
     arr = __grid__[:,:ncells].reshape((shape))
     arr[:,:] = True
-    newcoords = map(lambda coord: (coord[0]-box[0][0], coord[1]-box[0][1]), coords)
+    newcoords = [ (coord[0]-box[0][0], coord[1]-box[0][1]) for coord in coords ]
     arr[zip(*newcoords)] = False
-    encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
-    return (box, encs)
+    #encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
+    return (box, map(tuple, np.argwhere(arr)))
 
 def decgrid(box, negs):
     global __grid__, __gcells__    
@@ -77,7 +82,7 @@ def decgrid(box, negs):
         __gcells__ = reduce(mul, __grid__.shape)
     arr = __grid__[:,:ncells].reshape((shape))
     arr[:,:] = True
-    arr[zip(*map(lambda enc: dec(enc, shape), negs))] = False
+    arr[zip(*negs)] = False
     return map(lambda coord: (coord[0]+box[0][0], coord[1]+box[0][1]), np.argwhere(arr))
 
     
@@ -351,20 +356,21 @@ class DiskStore(IPstore):
             return vals
         elif self.spec.outcoords == Spec.GRID:
             box, negs = obj[0]
-            return map(self.enc_out, decgrid(box, negs))
+            return map(self.enc_out, decgrid(box, map(self.dec_out, negs)))
             
         ret = self._parse(StringIO(obj[0]), self.spec.outcoords)
         return ret
 
     def extract_outcells(self, obj):
         if self.spec.outcoords == Spec.GRID:
-            return decgrid(obj[0][0], obj[0][1])
+            box, negs = obj[0]
+            return decgrid( box, map(self.dec_out, negs) )
         return map(self.dec_out, self.extract_outcells_enc(obj))
 
 
     def extract_outboxes(self, obj):
         if self.spec.outcoords == Spec.BOX:
-            return self._parse(StringIO(obj[0]), self.spec.outcoords)
+            return map(lambda c: self.dec_out, self._parse(StringIO(obj[0]), self.spec.outcoords))
         raise RuntimeError
 
     def extract_allincells_enc(self, obj):
@@ -381,7 +387,8 @@ class DiskStore(IPstore):
             return ret
         elif Spec.GRID == self.spec.payload:
             ret = []
-            for box, negs in parsed:
+            for arridx, (box, negs) in enumerate(parsed):
+                negs = [ self.dec_in(coord, arridx) for coord in negs ]
                 encs = map(lambda coord: self.enc_in(coord, len(ret)), decgrid(box, negs))
                 ret.append(encs)
             return ret
@@ -407,6 +414,7 @@ class DiskStore(IPstore):
             return encs
         elif Spec.GRID == self.spec.payload:
             box, negs = val
+            negs = [ self.dec_in(coord, arridx) for coord in negs ]            
             return map(lambda coord: self.enc_in(coord, arridx), decgrid(box, negs))
         elif Spec.is_coord(self.spec.payload):
             return val
@@ -416,6 +424,7 @@ class DiskStore(IPstore):
         if Spec.GRID == self.spec.payload:
             buf = StringIO(obj[1])
             grid, negs = self._parse(buf, Spec.GRID)
+            negs = [ self.dec_in(coord, arridx) for coord in negs ]
             return decgrid(grid, negs)
         return map(lambda val: self.dec_in(val, arridx),
                    self.extract_incells_enc(obj, arridx))
@@ -423,7 +432,11 @@ class DiskStore(IPstore):
     def extract_inboxes(self, obj):
         if self.spec.payload == Spec.BOX:
             buf = StringIO(obj[1])
-            return [self._parse(buf, self.spec.payload) for arridx in  xrange(self.nargs)]
+            boxes = []
+            for arridx in xrange(self.nargs):
+                box = self._parse(buf, self.spec.payload)
+                boxes.append( (self.dec_in(box[0], arridx), self.dec_in(box[1], arridx)) )
+            return boxes
         raise RuntimeError
 
     def enc_out(self, coord):
@@ -452,26 +465,9 @@ class DiskStore(IPstore):
         elif mode == Spec.COORD_MANY:
             return '%dI' % (len(counts) + sum(counts))
         elif mode == Spec.BOX:
-            return '%dI' % (4 * len(counts))
+            return '%dI' % (2 * len(counts))
         elif mode == Spec.GRID:
-            raise RuntimeError
-        elif mode == Spec.KEY:
-            return '%dI' % (len(counts) + sum(counts))
-        elif mode == Spec.BINARY:
-            raise RuntimeError
-        elif mode == Spec.NONE:
-            return ''
-        
-    def _ser(self, fmt, counts, encs):
-        if mode == Spec.COORD_ONE:
-            return struct.pack(fmt, *encs)
-        elif mode == Spec.COORD_MANY:
-            
-            return '%dI' % (len(counts) + sum(counts))
-        elif mode == Spec.BOX:
-            return '%dI' % (4 * len(counts))
-        elif mode == Spec.GRID:
-            raise RuntimeError
+            return '%dI' % sum(counts)
         elif mode == Spec.KEY:
             return '%dI' % (len(counts) + sum(counts))
         elif mode == Spec.BINARY:
@@ -531,6 +527,8 @@ class DiskStore(IPstore):
             if n > 1000000:  raise RuntimeError, "trying to parse really large string %d" % n
             return struct.unpack("%dI" % n, buf.read(4*n))
         elif mode == Spec.BOX:
+            minpt, maxpt = struct.unpack('2I', buf.read(8))
+            return (minpt, maxpt)
             return (struct.unpack("2I", buf.read(8)), struct.unpack("2I", buf.read(8)))
             vals = struct.unpack("4I", buf.read(4*4))
             return (vals[:2],vals[2:])
@@ -851,6 +849,8 @@ class PStore3(DiskStore):
         self.outcounts = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
+        self.outbuf = None
+        self.inbufs = [None] * self.nargs
 
 
     def uses_mode(self, mode):
@@ -876,6 +876,8 @@ class PStore3(DiskStore):
         
     @instrument
     def write(self, outcoords, *incoords_arr):
+        #self.write_old(outcoords, *incoords_arr)
+        #return
         #self.update_stats(outcoords, *incoords_arr)
 
         if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
@@ -886,44 +888,73 @@ class PStore3(DiskStore):
         for cache, counts, incoords in zip(self.incache,
                                            self.incounts,
                                            incoords_arr):
-            if self.spec.payload in (Spec.COORD_MANY, Spec.KEY):
-                cache.append((0, len(incoords)))
-            cache.extend(incoords)
-            counts.append(len(incoords))
+
+            if Spec.BOX == self.spec.payload:
+                box = bbox(incoords)
+                cache.extend(box)
+                counts.append(2)
+            elif Spec.GRID == self.spec.payload:
+                grid = gengrid(incoords)
+                cache.extend(grid[0])
+                cache.append( (0, len(grid[1])) )
+                cache.extend(grid[1])
+                counts.append(2 + 1 + len(grid[1]))
+            else:
+                if self.spec.payload in (Spec.COORD_MANY, Spec.KEY):
+                    cache.append((0, len(incoords)))
+                cache.extend(incoords)
+                counts.append(len(incoords))
 
         if min(map(len,self.incache), len(self.outcache)) >  1000:
             self.flush()
 
     def flush(self):
         # grid and bounding box suck because they don't really scale
-
+        
         oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
         iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
                   for arridx, incoords in enumerate(self.incache) ]
 
         fmt = self._serialize_format(self.outcounts, self.spec.outcoords)
-        keybuf = create_string_buffer(struct.calcsize(fmt))
-        struct.pack_into(fmt, keybuf, 0, *oencs)
 
-        valbufs = []
-        for arridx, (counts, incoords) in  enumerate(zip(self.incounts, self.incache)):
-            iencs = [ self.enc_in(incoord, arridx) for incorod in incoords ]
+        # lookup or create key buffer        
+        keysize = struct.calcsize(fmt)
+        if self.outbuf is None or keysize > len(self.outbuf):
+            self.outbuf = create_string_buffer(keysize)
+        struct.pack_into(fmt, self.outbuf, 0, *oencs)
+
+
+        for arridx, (counts, valbuf, incoords) in  enumerate(zip(self.incounts, self.inbufs, self.incache)):
+            iencs = [ self.enc_in(incoord, arridx) for incoord in incoords ]
             fmt = self._serialize_format(counts, self.spec.payload)
-            valbuf = create_string_buffer(struct.calcsize(fmt))
-            struct.pack_into(fmt, valbuf, 0, *iencs)
-            valbufs.append(valbuf)
+
+            # lookup or create value buffer
+            valsize = struct.calcsize(fmt)
+            if valbuf is None or valsize > len(valbuf):
+                self.inbufs[arridx] = create_string_buffer(valsize)
+
+            struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
 
         def foo(buf, count, offset, mode):
-            if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
+            if mode in (Spec.COORD_MANY, Spec.KEY):
                 end = offset + 4 * (1 + count)
-            elif self.spec.outcoords == Spec.BOX:
-                end = offset + 16
-            elif self.spec.outcoords == Spec.COORD_ONE:
+            elif mode == Spec.GRID:
+                end = offset + 4 * count
+            elif mode == Spec.BOX:
+                end = offset + 8
+            elif mode == Spec.COORD_ONE:
                 end = offset + 4
-            return buf[offset:end], end
+            ret = buf[offset:end]
 
-        alldata = [keybuf]
-        alldata.extend(valbufs)
+            if mode == Spec.KEY:
+                key = 'key:%d' % hash(ret)
+                self.bdb[key] = ret
+                key = struct.pack('I%ds' % len(key), len(key), key)
+                return key, end
+            return ret, end
+
+        alldata = [self.outbuf]
+        alldata.extend(self.inbufs)
         allcounts = [self.outcounts]
         allcounts.extend(self.incounts)
         offsets = [0] * len(alldata)
@@ -937,8 +968,8 @@ class PStore3(DiskStore):
                     key = ba
                 else:
                     vals.append(ba)
+            print vals
             self.bdb[key] = ''.join(vals)
-        print len(self.bdb)
 
         # for ocount, incounts in self.outcounts:
         #     key, off = foo(keybuf, ocount, off, self.spec.outcoords)
@@ -949,8 +980,8 @@ class PStore3(DiskStore):
         self.outcounts = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
-        return
-        
+
+    def write_old(self, outcoords, *incoords_arr):
 
         start = time.time()
         val = StringIO()

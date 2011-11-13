@@ -405,19 +405,19 @@ if __name__ == '__main__':
 
     strats = [
 
-    #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
+        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
+        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
         #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
+        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
 
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
         #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
 
 
         # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
@@ -431,12 +431,11 @@ if __name__ == '__main__':
 
     noutputs = (100,1000,10000)
     fanins = [1,10,25,50,100]
-    fanouts = [10, 100,1000]#10,25,50,100,150,200,250,1000]
+    fanouts = [1, 10, 100,1000]#10,25,50,100,150,200,250,1000]
 
     noutputs = (10000,)
     fanins = [1, 10, 25]#, 100]#, 200]
     fanins = [10]
-    fanouts = [1]
 
 
     def gen_configs(strats, noutputs, fanins, fanouts):
