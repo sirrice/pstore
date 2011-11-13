@@ -121,6 +121,7 @@ def run_exp(db, configs):
         strat, fanin, fanout, noutput = config
         Runtime.instance().set_strategy(op, strat)
         prov = get_prov(config)
+        print 'running %s\t%d\t%d\t%d' % tuple(config)
 
         # data loading costs
         costs = []
@@ -405,19 +406,19 @@ if __name__ == '__main__':
 
     strats = [
 
-        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
-        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
-        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
-        #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
-
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
+        
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
 
 
         # Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),

@@ -876,61 +876,43 @@ class PStore3(DiskStore):
 
 
     def add_to_cache(self, cache, counts, coords, mode ):
-        pass
+        if Spec.BOX == mode:
+            box = bbox(coords)
+            cache.extend(box)
+            counts.append(2)
+        elif Spec.GRID == mode:
+            grid = gengrid(coords)
+            cache.extend( grid[0] )
+            cache.append( (0, len(grid[1])) )
+            cache.extend( grid[1] )
+            counts.append(2 + 1 + len(grid[1]))
+            #print 2 + 1 + len(grid[1])
+        else:
+            if mode in (Spec.COORD_MANY, Spec.KEY):
+                cache.append((0, len(coords)))
+            cache.extend(coords)
+            counts.append(len(coords))
         
     @instrument
     def write(self, outcoords, *incoords_arr):
         #self.write_old(outcoords, *incoords_arr)
-        #return
         #self.update_stats(outcoords, *incoords_arr)
 
-        if Spec.BOX == self.spec.outcoords:
-            box = bbox(outcoords)
-            self.outcache.extend(box)
-            self.outcounts.append(2)
-        elif Spec.GRID == self.spec.outcoords:
-            grid = gengrid(outcoords)
-            self.outcache.extend(grid[0])
-            self.outcache.append( (0, len(grid[1])) )
-            self.outcounts.append(2 + 1 + len(grid[1]))
-        else:
-            if self.spec.outcoords in (Spec.COORD_MANY, Spec.KEY):
-                self.outcache.append((0, len(outcoords)))
-            self.outcache.extend(outcoords)
-            self.outcounts.append(len(outcoords))
+        self.add_to_cache(self.outcache, self.outcounts, outcoords, self.spec.outcoords)
 
-        for cache, counts, incoords in zip(self.incache,
-                                           self.incounts,
-                                           incoords_arr):
-
-            if Spec.BOX == self.spec.payload:
-                box = bbox(incoords)
-                cache.extend(box)
-                counts.append(2)
-            elif Spec.GRID == self.spec.payload:
-                grid = gengrid(incoords)
-                cache.extend(grid[0])
-                cache.append( (0, len(grid[1])) )
-                cache.extend(grid[1])
-                counts.append(2 + 1 + len(grid[1]))
-            else:
-                if self.spec.payload in (Spec.COORD_MANY, Spec.KEY):
-                    cache.append((0, len(incoords)))
-                cache.extend(incoords)
-                counts.append(len(incoords))
+        for cache, counts, incoords in zip(self.incache, self.incounts, incoords_arr):
+            self.add_to_cache(cache, counts, incoords, self.spec.payload)
 
         if min(map(len,self.incache), len(self.outcache)) >  1000:
             self.flush()
 
     def flush(self):
-        # grid and bounding box suck because they don't really scale
-        
         oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
         iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
                   for arridx, incoords in enumerate(self.incache) ]
 
+        # serialize outputs into preallocated buffers
         fmt = self._serialize_format(self.outcounts, self.spec.outcoords)
-
         # lookup or create key buffer        
         keysize = struct.calcsize(fmt)
         if self.outbuf is None or keysize > len(self.outbuf):
@@ -938,15 +920,14 @@ class PStore3(DiskStore):
         struct.pack_into(fmt, self.outbuf, 0, *oencs)
 
 
+        # serialize the inputs into preallocated buffers
         for arridx, (counts, valbuf, incoords) in  enumerate(zip(self.incounts, self.inbufs, self.incache)):
             iencs = [ self.enc_in(incoord, arridx) for incoord in incoords ]
             fmt = self._serialize_format(counts, self.spec.payload)
-
             # lookup or create value buffer
             valsize = struct.calcsize(fmt)
             if valbuf is None or valsize > len(valbuf):
                 self.inbufs[arridx] = create_string_buffer(valsize)
-
             struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
 
         def foo(buf, count, offset, mode):
@@ -982,14 +963,10 @@ class PStore3(DiskStore):
                     key = ba
                 else:
                     vals.append(ba)
-            print vals
             self.bdb[key] = ''.join(vals)
 
-        # for ocount, incounts in self.outcounts:
-        #     key, off = foo(keybuf, ocount, off, self.spec.outcoords)
-        #     self.bdb[key] = ''
 
-
+        # reset the cache
         self.outcache = []
         self.outcounts = []
         self.incache = [[] for n in xrange(self.nargs)]
