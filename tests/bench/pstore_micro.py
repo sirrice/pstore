@@ -85,10 +85,11 @@ def get_prov(config):
 def run_exp(db, configs):
     class BenchOp(Op):
         class Wrapper(object):
-            def __init__(self, shape):
+            def __init__(self, arr):
+                shape = arr.shape
                 self.nargs = 1
                 self.shape = shape
-                self._arr = None
+                self._arr = arr
 
             def get_input_shapes(self, run_id):
                 return [self.shape]
@@ -100,9 +101,10 @@ def run_exp(db, configs):
                 return [self._arr]
 
 
-        def __init__(self, shape):
+        def __init__(self, arr):
             super(BenchOp, self).__init__()
-            self.wrapper = BenchOp.Wrapper(shape)
+            shape = arr.shape
+            self.wrapper = BenchOp.Wrapper(arr)
             self.workflow = None
             self.shape = shape
 
@@ -112,7 +114,8 @@ def run_exp(db, configs):
         def output_shape(self, run_id):
             return self.shape
 
-    op = BenchOp((100,100))
+    arr = np.zeros((100,100))
+    op = BenchOp(arr)
     runid = 1
     setup_table(db)
     cur = db.cursor()    
@@ -161,7 +164,7 @@ def run_exp(db, configs):
 
         # query the provenance store
         # vary query size
-        qsizes = [1, 10, 100, 1000, 10000]
+        qsizes = [1, 10, 100, 1000, 2000]
         qcosts = []
         for qsize in qsizes:
             q = []
@@ -404,7 +407,6 @@ if __name__ == '__main__':
     db = sqlite3.connect('./_output/pstore_microbench.db')
 
     strats = [
-
         Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
         Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
         Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
@@ -429,7 +431,7 @@ if __name__ == '__main__':
         # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
     ]
 
-    noutputs = (100,1000,10000)
+    noutputs = (1000,10000)
     fanins = [1,10,25,50,100]
     fanouts = [1, 10, 100,1000]#10,25,50,100,150,200,250,1000]
     fanins = [1, 10, 25]

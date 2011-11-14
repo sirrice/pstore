@@ -1195,8 +1195,7 @@ class PStore3(DiskStore):
 
 
 class IBox(object):
-    def extract_incells(self, obj, arridx, outcoords, inputs):
-        boxes = self.extract_inboxes(obj)
+    def extract_incells(self, boxes, arridx, outcoords, inputs):
 
         newinputs = []
         for curarridx, curbox in enumerate(boxes):
@@ -1211,8 +1210,7 @@ class IBox(object):
             yield coord
 
         
-    def extract_outcells(self, obj, arridx, incoords, inputs):
-        boxes = self.extract_inboxes(obj)
+    def extract_outcells(self, boxes, arridx, incoords, inputs):
 
         newinputs = []
         for curarridx, curbox in enumerate(boxes):
@@ -1251,54 +1249,104 @@ class IBox(object):
             self.close()
             return
         
+        inputs = self.op.wrapper.get_inputs(self.run_id)
+        nfound = 0
 
         if backward:
-            def pred(coord, obj):
-                if Spec.BOX == self.spec.outcoords:
-                    box = self._parse(StringIO(obj[0]), Spec.BOX)
-                    return in_box(coord, box)
-                else:
-                    return tuple(coord) in super(IBox,self).extract_outcells(obj)
-            def extract(obj, coords, inputs):
-                return self.extract_incells(obj, arridx, coords, inputs)
-        else:
+            if Spec.BOX == self.spec.outcoords:
+                pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
+                getkey = lambda item: struct.pack('4I', *item.bbox)
+                matches = in_box
+            else:
+                pred = lambda obj: super(IBox,self).extract_outcells(obj)
+                getkey = lambda item: self.bdb[item.object]
+                matches = lambda coord, outcoords: coord in outcoords
 
+            bigboxes = [[] for i in xrange(self.nargs)]
+
+            for l in left:
+                l = tuple(l)
+
+                for item in self.outidx.get_pt(l):
+                    key =  getkey(item)
+                    r = (key, self.bdb[key])
+                    coords = pred(r)
+                    b = matches(l, coords)
+
+                    if b:
+                        boxes = self.extract_inboxes(r)
+                        for i in xrange(self.nargs):
+                            bigboxes[i].extend(boxes[i])
+
+            boxes = [bbox(bigboxes[i]) for i in xrange(self.nargs)]
+            for coord in self.extract_incells(boxes, arridx, left, inputs):
+                yield coord
+
+            
+            
+        else:
             def pred(coord, obj):
                 if Spec.BOX == self.spec.payload:
                     buf = StringIO(obj[1])
                     buf.seek(4*4*arridx)
-                    box = self._parse(buf, Spec.BOX)
+                    box = map(lambda b: self.dec_in(b, arridx), self._parse(buf, Spec.BOX))
                     return in_box(coord, box)
                 else:
                     return tuple(coord) in super(IBox,self).extract_incells(obj, arridx)
 
-            def extract(obj, coords, inputs):
-                return self.extract_outcells(obj, arridx, coords, inputs)
+            bigboxes = [[] for i in xrange(self.nargs)]
+            for r in self.get_iter():
+                for l in left:
+                    if pred(l,r):
+                        nfound += 1
+                        boxes = self.extract_inboxes(r)
+                        for i in xrange(self.nargs):
+                            bigboxes[i].extend(boxes[i])
 
+            boxes = [bbox(bigboxes[i]) for i in xrange(self.nargs) ]
+            for coord in self.extract_outcells(boxes, arridx, left, inputs):
+                yield coord
 
-        inputs = self.op.wrapper.get_inputs(self.run_id)
-        nfound = 0
-        for r in self.get_iter():
-            for l in left:
-                if pred(l,r):
-                    nfound += 1
-                    for coord in extract(r, left, inputs):
-                        yield coord
-                    break
         self.close()
 
 
     def hash_join(self, left, arridx):
+        bigboxes = [[] for i in xrange(self.nargs)]        
+        buf = []
+        serbuf = create_string_buffer(1000*4)
         for l in left:
-            enc = (self.enc_out(l),)
-            key = StringIO()
-            self._serialize(enc, key, self.spec.outcoords)
-            key = key.getvalue()
-            if key not in self.bdb: continue
-            payload = self.bdb[key]
-            if payload:
-                for coord in self.extract_incells((key, payload), arridx):
-                    yield coord
+            buf.append(l)
+
+            if len(buf) >= 1000:
+                encs = map(self.enc_out, buf)
+                struct.pack_into('%dI' % len(encs), serbuf, 0, *encs)
+                for i in xrange(1000):
+                    key = serbuf[i*4:i*4+4]
+                    if key not in self.bdb: continue
+                    payload = self.bdb[key]
+                    if payload != None:
+                        boxes = self.extract_inboxes((key, payload))
+                        for i in xrange(self.nargs):
+                            bigboxes[i].extend(boxes[i])
+                buf = []
+
+        if len(buf) > 0:
+            encs = map(self.enc_out, buf)
+            struct.pack_into('%dI' % len(encs), serbuf, 0, *encs)
+            for i in xrange(len(buf)):
+                key = serbuf[i*4:i*4+4]
+                if key not in self.bdb: continue
+                payload = self.bdb[key]
+                if payload != None:
+                    boxes = self.extract_inboxes((key, payload))
+                    for i in xrange(self.nargs):
+                        bigboxes[i].extend(boxes[i])
+            buf = []
+
+        inputs = self.op.wrapper.get_inputs(self.run_id)
+        boxes = [bbox(bigboxes[i]) for i in xrange(self.nargs)]
+        for coord in self.extract_incells(boxes, arridx, left, inputs):
+            yield coord
 
 
 class PStore3Box(IBox,PStore3):
