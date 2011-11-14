@@ -107,7 +107,6 @@ if __name__ == "__main__":
         totalcost = 0.0
         for inputs, runid, path, direction in queries:
             start = time.time()
-
             if direction == 'forward':
                 res = w.forward_path(inputs, runid, path)
             else:
@@ -137,8 +136,9 @@ if __name__ == "__main__":
         queries.extend(scenario2(runid))
         queries.extend(scenario1a(runid))
         queries.extend(scenario1b(runid))
-        #queries.extend(scenario3(runid))
+        ##queries.extend(scenario3(runid))
         queries.extend(scenario4(runid))
+
         return queries
 
         if runid < 10:

@@ -155,7 +155,9 @@ class IPstore(object):
         self.stats[attr] += val            
 
     def uses_mode(self, mode):
-        return mode in self.strat.modes()
+        for m in self.strat.modes():
+            if mode & m: return True
+        return False
 
     def get_iter(self):
         return ()
@@ -237,7 +239,9 @@ class StatPStore(IPstore):
         self.nskipped = 0
 
     def uses_mode(self, mode):
-        return mode in ( Mode.PTR, Mode.FULL_MAPFUNC )
+        for m in ( Mode.PTR, Mode.FULL_MAPFUNC ):
+            if mode & m: return True
+        return False
     
     @instrument
     def update_stats(self, outcoords, *incoords_arr):
@@ -296,7 +300,7 @@ class PStore1(IPstore):
         self.spec = strat.spec
 
     def uses_mode(self, obj):
-        return obj == Mode.FULL_MAPFUNC
+        return obj & Mode.FULL_MAPFUNC != 0
 
     def extract_outcells(self, obj):
         return (obj[0],)
@@ -337,7 +341,7 @@ class DiskStore(IPstore):
         self.outidx = SpatialIndex(fname)
 
     def get_iter(self):
-        return (x for x in self.bdb.iteritems() if not x[0].startswith("key:"))
+        return (x for x in self.bdb.iteritems() if not x[0].startswith("key:") and not x[0].startswith('b:'))
 
     def disk(self):
         try:
@@ -355,16 +359,18 @@ class DiskStore(IPstore):
             vals = self._parse(StringIO(ser_vals), Spec.COORD_MANY)
             return vals
         elif self.spec.outcoords == Spec.GRID:
-            box, negs = obj[0]
-            return map(self.enc_out, decgrid(box, map(self.dec_out, negs)))
+            coords = map(self.dec_out, obj[0])
+            box, negs = coords[:2], coords[3:]
+            return map(self.enc_out, decgrid(box, negs))
             
         ret = self._parse(StringIO(obj[0]), self.spec.outcoords)
         return ret
 
     def extract_outcells(self, obj):
         if self.spec.outcoords == Spec.GRID:
-            box, negs = obj[0]
-            return decgrid( box, map(self.dec_out, negs) )
+            coords = map(self.dec_out, obj[0])
+            box, negs = coords[:2], coords[3:]
+            return decgrid(box, negs)
         return map(self.dec_out, self.extract_outcells_enc(obj))
 
 
@@ -387,8 +393,9 @@ class DiskStore(IPstore):
             return ret
         elif Spec.GRID == self.spec.payload:
             ret = []
-            for arridx, (box, negs) in enumerate(parsed):
-                negs = [ self.dec_in(coord, arridx) for coord in negs ]
+            for arridx, encs in enumerate(parsed):
+                coords = map(self.dec_out, encs)
+                box, negs = coords[:2], coords[3:]
                 encs = map(lambda coord: self.enc_in(coord, len(ret)), decgrid(box, negs))
                 ret.append(encs)
             return ret
@@ -413,8 +420,8 @@ class DiskStore(IPstore):
             encs = self._parse(StringIO(ser_encs), Spec.COORD_MANY)
             return encs
         elif Spec.GRID == self.spec.payload:
-            box, negs = val
-            negs = [ self.dec_in(coord, arridx) for coord in negs ]            
+            coords = map(self.dec_out, val)
+            box, negs = coords[:2], coords[3:]
             return map(lambda coord: self.enc_in(coord, arridx), decgrid(box, negs))
         elif Spec.is_coord(self.spec.payload):
             return val
@@ -423,9 +430,12 @@ class DiskStore(IPstore):
     def extract_incells(self, obj, arridx):
         if Spec.GRID == self.spec.payload:
             buf = StringIO(obj[1])
-            grid, negs = self._parse(buf, Spec.GRID)
-            negs = [ self.dec_in(coord, arridx) for coord in negs ]
-            return decgrid(grid, negs)
+            for idx in xrange(arridx):
+                self._parse(buf, self.spec.payload)
+            val = self._parse(buf, self.spec.payload)
+            coords = map(self.dec_out, val)
+            box, negs = coords[:2], coords[3:]
+            return decgrid(box, negs)
         return map(lambda val: self.dec_in(val, arridx),
                    self.extract_incells_enc(obj, arridx))
 
@@ -494,7 +504,7 @@ class DiskStore(IPstore):
             buf.write(s)
         elif mode == Spec.BOX:
             box = data
-            buf.write(struct.pack("4I", box[0][0], box[0][1], box[1][0], box[1][1]))
+            buf.write(struct.pack('2I', *box))
         elif mode == Spec.GRID:
             box, encs = data
             self._serialize(box, buf, Spec.BOX)
@@ -529,14 +539,14 @@ class DiskStore(IPstore):
         elif mode == Spec.BOX:
             minpt, maxpt = struct.unpack('2I', buf.read(8))
             return (minpt, maxpt)
-            return (struct.unpack("2I", buf.read(8)), struct.unpack("2I", buf.read(8)))
-            vals = struct.unpack("4I", buf.read(4*4))
-            return (vals[:2],vals[2:])
         elif mode == Spec.GRID:
-            return self._parse(buf, Spec.BOX), self._parse(buf, Spec.COORD_MANY)
+            pos = buf.tell()
+            buf.seek(pos+8)
+            n, = struct.unpack('I', buf.read(4))
+            buf.seek(pos)
+            return struct.unpack('%dI' % (3+n), buf.read(8 + 4 + 4*n))
         elif mode == Spec.KEY:
-            n, = struct.unpack("I", buf.read(4))
-            ser_key, = struct.unpack("%ds" % n, buf.read(n))
+            n, ser_key = struct.unpack("I14s", buf.read(4 + 14))
             return ser_key
         elif mode == Spec.BINARY:
             n, = struct.unpack("I", buf.read(4))
@@ -573,6 +583,7 @@ class DiskStore(IPstore):
                 def getkey(item):
                     box = item.bbox
                     box = (box[:2],box[2:])
+                    box = self.enc_out(box)
                     key = StringIO()
                     self._serialize(box, key, Spec.BOX)
                     return key.getvalue()
@@ -580,11 +591,12 @@ class DiskStore(IPstore):
                 pred = self.extract_outcells_enc
                 matches = lambda coord, outcoords: self.enc_out(coord) in outcoords
                 #left = map(self.enc_out, left)
-                getkey = lambda item: item.object
+                getkey = lambda item: self.bdb[item.object]
             extract = lambda obj: self.extract_incells(obj, arridx)
 
             for l in left:
                 l = tuple(l)
+
                 for item in self.outidx.get_pt(l):
                     key = getkey(item)
                     r = (key, self.bdb[key])
@@ -593,6 +605,7 @@ class DiskStore(IPstore):
                     if b:
                         start = time.time()
                         e = extract(r)
+
                         extractcost += time.time() - start
                         for coord in e:
                             yield coord
@@ -602,7 +615,7 @@ class DiskStore(IPstore):
             if Spec.BOX == self.spec.payload:
                 def pred(coord, obj):
                     buf = StringIO(obj[1])
-                    buf.seek(4*4*arridx)
+                    buf.seek(8*arridx)
                     box = self._parse(buf, Spec.BOX)
                     return box
                 matches = in_box
@@ -661,7 +674,7 @@ class DiskStore(IPstore):
             start = time.time()
             payload = self.bdb[key]
             datacost += time.time() - start
-            if payload:
+            if payload is not None:
                 start = time.time()
                 e = self.extract_incells((key, payload), arridx)
                 extractcost += time.time() - start
@@ -771,7 +784,7 @@ class PStore2(DiskStore):
         self.spec.payload = Spec.BINARY # ignore payload spec
 
     def uses_mode(self, mode):
-        return mode == Mode.PT_MAPFUNC
+        return mode & Mode.PT_MAPFUNC != 0
 
     @instrument
     def update_stats(self, outcoords, payload):
@@ -820,26 +833,39 @@ class PStore2(DiskStore):
         self._serialize(payload, paybuf, self.spec.payload)
         return paybuf.getvalue()
 
+    def get_key(self, outcoords):
+        if self.spec.outcoords == Spec.GRID:
+            raise RuntimeError, 'not supported'
+        enc_outcoords = map(self.enc_out, outcoords)
+        outbuf = StringIO()
+        self._serialize(enc_outcoords, outbuf, self.spec.outcoords)
+        return outbuf.getvalue()
+
     @instrument
     def write(self, outcoords, payload):
         #self.update_stats(outcoords, payload)
         start = time.time()
-        key = self.get_key(outcoords)
-        box = []
-        map(lambda x: box.extend(x), bbox(outcoords))
-        self.outidx.set(box, key)
-        self.inc_stat('serout', time.time() - start)
-
-
-        
-        start = time.time()
         val = self.get_val(payload)
         self.inc_stat('serin', time.time() - start)
-
         
-        start = time.time()
-        self.bdb[key] = val
-        self.inc_stat('bdb', time.time() - start)
+        mode = self.spec.outcoords
+        if mode == Spec.COORD_ONE:
+            encs = map(self.enc_out, outcoords)
+            buf = struct.pack("%dI" % len(encs), *encs)
+            for i in xrange(len(outcoords)):
+                self.bdb[buf[i*4:i*4+4]] = val
+        else:
+            start = time.time()
+            key = self.get_key(outcoords)
+            box = []
+            map(lambda x: box.extend(x), bbox(outcoords))
+            self.outidx.set(box, key)
+            self.inc_stat('serout', time.time() - start)
+
+
+            start = time.time()
+            self.bdb[key] = val
+            self.inc_stat('bdb', time.time() - start)
 
             
 class PStore3(DiskStore):
@@ -847,14 +873,16 @@ class PStore3(DiskStore):
         super(PStore3, self).__init__(op, run_id, f, strat)
         self.outcache = []
         self.outcounts = []
+        self.outboxes = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
         self.outbuf = None
         self.inbufs = [None] * self.nargs
+        self.nbdbitems = 0
 
 
     def uses_mode(self, mode):
-        return mode == Mode.PTR
+        return mode & Mode.PTR != 0
 
     @instrument
     def update_stats(self, outcoords, *incoords_arr):
@@ -886,7 +914,6 @@ class PStore3(DiskStore):
             cache.append( (0, len(grid[1])) )
             cache.extend( grid[1] )
             counts.append(2 + 1 + len(grid[1]))
-            #print 2 + 1 + len(grid[1])
         else:
             if mode in (Spec.COORD_MANY, Spec.KEY):
                 cache.append((0, len(coords)))
@@ -898,15 +925,18 @@ class PStore3(DiskStore):
         #self.write_old(outcoords, *incoords_arr)
         #self.update_stats(outcoords, *incoords_arr)
 
+        box = bbox(outcoords)
+        self.outboxes.append(box)
         self.add_to_cache(self.outcache, self.outcounts, outcoords, self.spec.outcoords)
-
         for cache, counts, incoords in zip(self.incache, self.incounts, incoords_arr):
             self.add_to_cache(cache, counts, incoords, self.spec.payload)
+
 
         if min(map(len,self.incache), len(self.outcache)) >  1000:
             self.flush()
 
     def flush(self):
+        if not len(self.outcache): return
         oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
         iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
                   for arridx, incoords in enumerate(self.incache) ]
@@ -942,33 +972,124 @@ class PStore3(DiskStore):
             ret = buf[offset:end]
 
             if mode == Spec.KEY:
-                key = 'key:%d' % hash(ret)
+                h = str(hash(ret) % 4294967296)
+                key = 'key:%s' % h.rjust(10, '_')
                 self.bdb[key] = ret
-                key = struct.pack('I%ds' % len(key), len(key), key)
-                return key, end
+                ret = struct.pack('I%ds' % len(key), len(key), key)
+                return ret, end
             return ret, end
 
-        alldata = [self.outbuf]
-        alldata.extend(self.inbufs)
-        allcounts = [self.outcounts]
-        allcounts.extend(self.incounts)
-        offsets = [0] * len(alldata)
-        for counts in zip(*allcounts):
-            key, vals = None, []
-            for idx in xrange(len(offsets)):
-                count, buf, offset = counts[idx], alldata[idx], offsets[idx]
-                ba, offset = foo(buf, count, offset, idx == 0 and self.spec.outcoords or self.spec.payload)
-                offsets[idx] = offset
-                if idx == 0:
-                    key = ba
-                else:
-                    vals.append(ba)
-            self.bdb[key] = ''.join(vals)
+        def merge_serialized(old, new, arridx, mode = None):
+            if mode == None:
+                mode = self.spec.payload
+            if mode == Spec.KEY:
+                if old == new: return old
+                oldkey = old[4:]
+                newkey = new[4:]
+                oldval = self.bdb[oldkey]
+                newval = self.bdb[newkey]
 
+                newval = merge_serialized(oldval, newval, arridx, Spec.COORD_MANY)
 
+                h = str(hash(newval) % 4294967296)
+                key = 'key:%s' % h.rjust(10, '_')
+                self.bdb[key] = newval
+                key = struct.pack('I14s', len(key), key)
+                return key
+            elif mode == Spec.COORD_MANY:
+                oldn, = struct.unpack('I', old[:4])
+                newn, = struct.unpack('I', new[:4])
+                n = struct.pack('I', oldn + newn)
+                return ''.join([n, old[4:], new[4:]])
+            elif mode == Spec.GRID:
+                oldtmp = self._parse(old, mode)
+                newtmp = self._parse(new, mode)
+                oldbox, oldencs = oldtmp[:2], oldtmp[3:]
+                newbox, newencs = newtmp[:2], newtmp[3:]
+                coords = []
+                coords.extend(decgrid(oldbox, map(lambda c: self.dec_in(c, arridx), oldencs)))
+                coords.extend(decgrid(newbox, map(lambda c: self.dec_in(c, arridx), newencs)))
+                return gengrid(coords)
+            elif mode == Spec.BOX:
+                raise RuntimeError
+            elif mode == Spec.COORD_ONE:
+                raise RuntimeError
+
+        def segment_serinputs(val):
+            mode = self.spec.payload
+            if mode == Spec.KEY:
+                off = 0
+                ret = []
+                for i in xrange(self.nargs):
+                    ret.append(val[off:off+4+14])
+                    off += 4 + 14
+                return ret
+            elif mode == Spec.COORD_MANY:
+                off = 0
+                ret = []
+                for i in xrange(self.nargs):
+                    n, = struct.unpack("I", val[off:off+4])
+                    ret.append(val[off:off+4+n*4])
+                    off += 4 + 4 * n
+                return ret
+            elif mode == Spec.GRID:
+                off = 0
+                ret = []
+                for i in xrange(self.nargs):
+                    n, = struct.unpack("I", val[off+8:off+8+4])
+                    ret.append(val[off:off+8+4*(n+1)])
+                    off += 8 + 4 * (n+1)
+                return ret
+            elif mode == Spec.BOX:
+                off = 0
+                ret = []
+                for i in xrange(self.nargs):
+                    ret.append(val[off:off+8])
+                    off += 8
+                return ret
+            elif mode == Spec.COORD_ONE:
+                raise RuntimeError
+                
+
+        keyoffset = 0
+        valoffsets = [0] * len(self.inbufs)
+
+        for obox, ocount,  icounts in zip(self.outboxes, self.outcounts, zip(*self.incounts)):
+            obox = (obox[0][0], obox[0][1], obox[1][0], obox[1][1])
+            vals = []
+            for idx in xrange(len(valoffsets)):
+                count, buf, offset = icounts[idx], self.inbufs[idx], valoffsets[idx]
+                ba, offset = foo(buf, count, offset, self.spec.payload)
+                valoffsets[idx] = offset
+                vals.append(ba)
+            val = ''.join(vals)
+
+            if self.spec.outcoords == Spec.COORD_ONE:
+                for i in xrange(ocount):
+                    key, keyoffset = foo(self.outbuf, 1, keyoffset, self.spec.outcoords)
+                    if key not in self.bdb:
+                        self.bdb[key] = val
+                    else:
+                        oldvals = segment_serinputs(val)
+                        newvals = vals
+                        vals = []
+                        for arridx, (oldval, newval) in enumerate(zip(oldvals, newvals)):
+                            vals.append(merge_serialized(oldval, newval, arridx))
+                        self.bdb[key] = ''.join(vals)
+
+            else:
+                key, keyoffset = foo(self.outbuf, ocount, keyoffset, self.spec.outcoords)
+                idxkey = 'b:%d' % self.nbdbitems
+                self.bdb[idxkey] = key                
+                self.bdb[key] = val
+                self.outidx.set(obox, idxkey)
+                self.nbdbitems += 1
+            
+        
         # reset the cache
         self.outcache = []
         self.outcounts = []
+        self.outboxes = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
 
@@ -1048,6 +1169,11 @@ class PStore3(DiskStore):
             self.inc_stat('bdb', time.time() - start)
             
         self.inc_stat('serout', time.time() - ostart)
+
+    def close(self):
+        self.flush()
+        super(PStore3, self).close()
+        
 
 
 
@@ -1157,17 +1283,13 @@ class IBox(object):
                 for coord in self.extract_incells((key, payload), arridx):
                     yield coord
 
-    def close(self):
-        self.flush()        
-        super(PStore3, self).close()
-
 
 class PStore3Box(IBox,PStore3):
     def __init__(self, *args, **kwargs):
         super(PStore3Box, self).__init__(*args, **kwargs)
 
     def uses_mode(self, mode):
-        return mode == Mode.PTR 
+        return mode & Mode.PTR  != 0
 
 
 
@@ -1177,14 +1299,14 @@ class PStore2Box(IBox, PStore2):
         super(PStore2Box, self).__init__(*args, **kwargs)
 
     def uses_mode(self, mode):
-        return mode == Mode.PT_MAPFUNC_BOX
+        return mode & Mode.PT_MAPFUNC_BOX != 0
 
 class PStoreQuery(IBox,PStore1):
     def __init__(self, *args, **kwargs):
         super(PStoreQuery, self).__init__(*args)
 
     def uses_mode(self, mode):
-        return mode == Mode.QUERY
+        return mode & Mode.QUERY != 0
 
     @instrument
     def write(self, outcoords, *incoords_arr):
@@ -1369,7 +1491,7 @@ class FReexec(IPstore):
         self.stats = {}
 
     def uses_mode(self, mode):
-        return mode == Mode.PTR
+        return mode & Mode.PTR != 0
 
     @instrument
     def write(self, outcoords, *incoords_arr):
@@ -1388,7 +1510,7 @@ class BReexec(IPstore):
         self.stats = {}
         
     def uses_mode(self, mode):
-        return mode == Mode.PTR
+        return mode & Mode.PTR != 0
 
     @instrument
     def write(self, outcoords, *incoords_arr):

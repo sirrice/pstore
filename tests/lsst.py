@@ -423,7 +423,6 @@ class CRDetect(Op):
         #
 
         start = time.time()
-
         if pstore.uses_mode(Mode.PT_MAPFUNC | Mode.FULL_MAPFUNC):
             # more efficient storage.  Storage class 2
             for (x,y) in np.argwhere(finalsel):

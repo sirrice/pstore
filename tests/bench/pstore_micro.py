@@ -164,7 +164,6 @@ def run_exp(db, configs):
         qsizes = [1, 10, 100, 1000, 10000]
         qcosts = []
         for qsize in qsizes:
-            continue
             q = []
             for i in xrange(qsize):
                 q.append((random.randint(0, 99), random.randint(0,99)))
@@ -406,15 +405,15 @@ if __name__ == '__main__':
 
     strats = [
 
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
+        # Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.COORD_MANY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
+        # Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
         
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
