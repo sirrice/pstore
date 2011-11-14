@@ -68,7 +68,7 @@ class Stats(object):
                      arridx int,  area int)""",
 
             """create table pstore_overhead (wid int references workflow_run(rowid), 
-                        save float, overhead float, serialize float, disk float)""",
+                        save float, overhead float, serialize float, disk float, idx float)""",
             """create table pstore_stats (wid int references workflow_run(rowid),
                      arridx int, fanin float, area float, density float)""",
 
@@ -157,8 +157,8 @@ class Stats(object):
                             (self.eid, runid, op.oid, str(op).strip(), str(strat),
                              nptrs, oclustsize, noutcells, outputsize, opcost))
                 wid = cur.lastrowid
-                cur.execute("insert into pstore_overhead values (?,?,?,?,?)",
-                            (wid, 0, overhead, 0, disk))
+                cur.execute("insert into pstore_overhead values (?,?,?,?,?,?)",
+                            (wid, 0, overhead, 0, disk, 0))
 
             cur.execute("insert into pstore_stats values (%d,%d,%f,%d,%f)" %
                         (wid, arridx, fanin, area, density))
@@ -184,6 +184,7 @@ class Stats(object):
         fanins = pstore.get_fanins()
         areas = pstore.get_inareas()
         densities = pstore.get_densities()
+        idx = pstore.indexsize()
 
         cur = self.conn.cursor()
 
@@ -191,8 +192,8 @@ class Stats(object):
                     (self.eid, runid, op.oid, str(op).strip(), strat,
                      nptrs, oclustsize, noutcells, outputsize, cost, outputdisk))
         wid = cur.lastrowid
-        cur.execute("insert into pstore_overhead values (?,?,?,?,?)",
-                    (wid, save, overhead, serialize, disk))
+        cur.execute("insert into pstore_overhead values (?,?,?,?,?,?)",
+                    (wid, save, overhead, serialize, disk, idx))
 
 
         slog.info( "addwrun", op, fanins, areas, densities, inputs, noutcells )

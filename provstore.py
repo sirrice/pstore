@@ -165,6 +165,9 @@ class IPstore(object):
     def disk(self):
         return 0
 
+    def indexsize(self):
+        return 0
+
     def extract_outcells(self, obj):
         return (obj[0],)
 
@@ -347,6 +350,13 @@ class DiskStore(IPstore):
         try:
             return os.path.getsize(self.fname) + self.outidx.disk()
         except:
+            return 1
+
+    def indexsize(self):
+        try:
+            return self.outidx.disk()
+        except:
+            raise
             return 1
 
     def extract_outcells_enc(self, obj):
@@ -747,10 +757,11 @@ class SpatialIndex(object):
 
     def disk(self):
         try:
-            idxsize = os.path.size('%s.%s' % (p.get_filename(), p.get_idx_extension()))
-            datsize = os.path.size('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+            idxsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_idx_extension()))
+            datsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_dat_extension()))
             return idxsize + datsize
         except:
+            raise
             return 0
 
 
@@ -1362,6 +1373,9 @@ def create_ftype(ptype):
         def disk(self):
             return sum([pstore.disk() for pstore in self.pstores])
 
+        def indexsize(self):
+            return sum([pstore.indexsize() for pstore in self.pstores])
+
         @instrument
         def write(self, outcoords, *incoords_arr):
             for pstore, incoords in zip(self.pstores, incoords_arr):
@@ -1403,6 +1417,9 @@ def create_ftype(ptype):
 
         def disk(self):
             return self.pstore.disk()
+
+        def indexsize(self):
+            return self.pstore.indexsize()
         
         def compress_incoords_arr(self, incoords_arr):
             ret = []
@@ -1469,6 +1486,9 @@ class MultiPStore(IPstore):
 
     def disk(self):
         return self.bpstore.disk() + self.fpstore.disk()
+
+    def indexsize(self):
+        return self.bpstore.indexsize() + self.fpstore.indexsize()
 
     @instrument
     def write(self, outcoords, *incoords_arr):
@@ -1568,6 +1588,9 @@ class CompositePStore(IPstore):
 
     def disk(self):
         return sum([pstore.disk() for pstore in self.pstores])
+
+    def indexsize(self):
+        return sum([pstore.indexsize() for pstore in self.pstores])
 
     @instrument
     def update_stats(self, *args):

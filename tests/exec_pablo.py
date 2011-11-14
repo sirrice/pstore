@@ -349,7 +349,7 @@ def create_workflow():
 
             return 'opt'
 
-        return [pt3]#noop, stat, query_opt, ptr1, ptr2, ptr5]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
+        return [noop, stat, query_opt, ptr1, ptr2, ptr5, pt1, pt2, pt3]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
         # [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
         #  ptr4, ptr5, opt]
     
