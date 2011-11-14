@@ -299,6 +299,13 @@ def create_workflow():
             set_ptr_wrapper_opt(strat)
             return 'PTMAP_KEY_KEY_B'
 
+        def pt3():
+            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.KEY, Spec.KEY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)]) ]
+            s = Strat(buckets)
+            set_ptr_wrapper_opt(s)
+            return 'PTMAP_F_B'
+
         def ptr1():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
@@ -342,7 +349,7 @@ def create_workflow():
 
             return 'opt'
 
-        return [noop, stat, query_opt, ptr1, ptr2, ptr5]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
+        return [pt3]#noop, stat, query_opt, ptr1, ptr2, ptr5]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
         # [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
         #  ptr4, ptr5, opt]
     

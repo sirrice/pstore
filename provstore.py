@@ -513,10 +513,10 @@ class DiskStore(IPstore):
             ser_coords = StringIO()
             self._serialize(data, ser_coords, Spec.COORD_MANY)
             ser_coords = ser_coords.getvalue()
-            h = hash(ser_coords) % 4294967296
+            h = str(hash(ser_coords) % 4294967296).rjust(10, '_')
             ser_key = 'key:%s' % str(h)
             self.bdb[ser_key] = ser_coords
-            s = struct.pack("I%ds" % (len(ser_key)), len(ser_key), ser_key)
+            s = struct.pack("I%ds" % len(ser_key), len(ser_key), ser_key)
             buf.write(s)
         elif mode == Spec.BINARY:
             buf.write(struct.pack("I", len(data)))
@@ -782,6 +782,7 @@ class PStore2(DiskStore):
     def __init__(self, op, run_id, fname, strat):
         super(PStore2, self).__init__(op, run_id, fname, strat)
         self.spec.payload = Spec.BINARY # ignore payload spec
+        self.nbdbitems = 0
 
     def uses_mode(self, mode):
         return mode & Mode.PT_MAPFUNC != 0
@@ -857,13 +858,15 @@ class PStore2(DiskStore):
         else:
             start = time.time()
             key = self.get_key(outcoords)
-            box = []
-            map(lambda x: box.extend(x), bbox(outcoords))
-            self.outidx.set(box, key)
+            
+            box = bbox(outcoords)
+            idxkey = 'b:%d' % self.nbdbitems
+            self.nbdbitems += 1
+            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), idxkey)
             self.inc_stat('serout', time.time() - start)
 
-
             start = time.time()
+            self.bdb[idxkey] = key
             self.bdb[key] = val
             self.inc_stat('bdb', time.time() - start)
 
@@ -871,6 +874,11 @@ class PStore2(DiskStore):
 class PStore3(DiskStore):
     def __init__(self, op, run_id, f, strat):
         super(PStore3, self).__init__(op, run_id, f, strat)
+        self.outcache = None
+        self.nbdbitems = 0
+        
+
+    def reset_cache(self):
         self.outcache = []
         self.outcounts = []
         self.outboxes = []
@@ -878,7 +886,7 @@ class PStore3(DiskStore):
         self.incounts = [[] for n in xrange(self.nargs)]
         self.outbuf = None
         self.inbufs = [None] * self.nargs
-        self.nbdbitems = 0
+        
 
 
     def uses_mode(self, mode):
@@ -924,6 +932,8 @@ class PStore3(DiskStore):
     def write(self, outcoords, *incoords_arr):
         #self.write_old(outcoords, *incoords_arr)
         #self.update_stats(outcoords, *incoords_arr)
+        if self.outcache is None:
+            self.reset_cache()
 
         box = bbox(outcoords)
         self.outboxes.append(box)
@@ -1053,7 +1063,7 @@ class PStore3(DiskStore):
 
         keyoffset = 0
         valoffsets = [0] * len(self.inbufs)
-
+        #print len(self.inbufs), len(self.outboxes), len(self.outcounts), map(len, self.incounts)
         for obox, ocount,  icounts in zip(self.outboxes, self.outcounts, zip(*self.incounts)):
             obox = (obox[0][0], obox[0][1], obox[1][0], obox[1][1])
             vals = []
@@ -1087,11 +1097,7 @@ class PStore3(DiskStore):
             
         
         # reset the cache
-        self.outcache = []
-        self.outcounts = []
-        self.outboxes = []
-        self.incache = [[] for n in xrange(self.nargs)]
-        self.incounts = [[] for n in xrange(self.nargs)]
+        self.reset_cache()                
 
     def write_old(self, outcoords, *incoords_arr):
 
@@ -1333,6 +1339,8 @@ def create_ftype(ptype):
                 pstore.inshapes = [self.outshape]
                 pstore.outshape = self.inshapes[arridx]
                 pstore.nargs = 1
+                if isinstance(pstore, PStore3):
+                    pstore.reset_cache()
                 self.pstores.append(pstore)
 
         def uses_mode(self, mode):
