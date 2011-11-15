@@ -724,7 +724,6 @@ class DiskStore(IPstore):
 
 
             for r in self.get_iter(): # r is a pair of unparsed strings
-                niter += 1
                 start = time.time()
                 coords = pred(r) #
                 parsecost += time.time() - start
