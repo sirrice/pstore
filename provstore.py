@@ -4,6 +4,7 @@ from StringIO import StringIO
 from operator import mul, or_, and_
 from ctypes import create_string_buffer
 
+
 from strat import *
 from queryresult import *
 from util import subarray
@@ -72,6 +73,8 @@ def gengrid(coords):
     arr[zip(*newcoords)] = False
     #encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
     return (box, map(tuple, np.argwhere(arr)))
+
+    
 
 def decgrid(box, negs):
     global __grid__, __gcells__    
@@ -738,6 +741,7 @@ class SpatialIndex(object):
     def __init__(self, fname):
         self.fname = '%s_rtree' % fname
         self.rtree = None
+        #self.bdb = None
         self.id = 0
         p = index.Property()
         p.dimension = 2
@@ -748,17 +752,26 @@ class SpatialIndex(object):
     def set(self, box, val):
         self.rtree.add(self.id, box, val)
         self.id += 1
+        #if val is not None:
+         #   self.bdb[str(self.id)] = val
 
     def get_pt(self, pt):
-        return self.rtree.intersection(pt, objects=True)
+        return self.rtree.intersection(pt, objects = True)
+        # for item in self.rtree.intersection(pt, objects = True):
+        #     item.object = self.bdb.get(str(item.id), None)
+        #     yield item
 
     def get_box(self, box):
-        return self.rtree.intersection(box, objects=True)
+        return self.rtree.intersection(box, objects = True)
+        # for item in self.rtree.intersection(box, objects = True):
+        #     item.object = self.bdb.get(str(item.id), None)
+        #     yield item
 
     def disk(self):
         try:
             idxsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_idx_extension()))
             datsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_dat_extension()))
+            #bdbsize = os.path.getsize('%s.%s' % (self.p.get_filename(), 'bdb'))
             return idxsize + datsize
         except:
             raise
@@ -769,20 +782,22 @@ class SpatialIndex(object):
         p = self.p
         if new:
             try:
-                os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
-                os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+                self.delete()
             except:
                 pass
         self.rtree = BinaryRTree(p.get_filename(), properties=p)
+        #self.bdb = bsddb.hashopen('%s.bdb'% p.get_filename(), 'n')
 
     def close(self):
         self.rtree.close()
+        #self.bdb.close()
 
     def delete(self):
         p = self.p
         try:
             os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
             os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+            #os.unlink('%s.%s' % (p.get_filename(), 'bdb'))
         except:
             raise
 
@@ -794,6 +809,19 @@ class PStore2(DiskStore):
         super(PStore2, self).__init__(op, run_id, fname, strat)
         self.spec.payload = Spec.BINARY # ignore payload spec
         self.nbdbitems = 0
+        self.reset_cache()
+        self.outbuf = None
+        self.inbuf = None
+        
+
+    def reset_cache(self):
+        self.outcache = []
+        self.outcounts = []
+        self.outboxes = []
+        self.incache = []
+        self.incounts = []
+        
+        
 
     def uses_mode(self, mode):
         return mode & Mode.PT_MAPFUNC != 0
@@ -853,40 +881,152 @@ class PStore2(DiskStore):
         self._serialize(enc_outcoords, outbuf, self.spec.outcoords)
         return outbuf.getvalue()
 
+    def add_to_cache(self, cache, counts, coords, mode ):
+        if Spec.BOX == mode:
+            box = bbox(coords)
+            cache.extend(box)
+            counts.append(2)
+        elif Spec.GRID == mode:
+            grid = gengrid(coords)
+            cache.extend( grid[0] )
+            cache.append( (0, len(grid[1])) )
+            cache.extend( grid[1] )
+            counts.append(2 + 1 + len(grid[1]))
+        else:
+            if mode in (Spec.COORD_MANY, Spec.KEY):
+                cache.append((0, len(coords)))
+            cache.extend(coords)
+            counts.append(len(coords))
+        
+
     @instrument
     def write(self, outcoords, payload):
         #self.update_stats(outcoords, payload)
         start = time.time()
-        val = self.get_val(payload)
-        self.inc_stat('serin', time.time() - start)
-        
-        mode = self.spec.outcoords
-        if mode == Spec.COORD_ONE:
-            encs = map(self.enc_out, outcoords)
-            buf = struct.pack("%dI" % len(encs), *encs)
-            for i in xrange(len(outcoords)):
-                self.bdb[buf[i*4:i*4+4]] = val
+        if self.spec.outcoords != Spec.COORD_ONE:
+            self.outboxes.append(bbox(outcoords))
         else:
-            start = time.time()
-            key = self.get_key(outcoords)
+            self.outboxes.append(None)
+        self.add_to_cache(self.outcache, self.outcounts, outcoords, self.spec.outcoords)
+        self.inc_stat('outcache', time.time()-start)
+
+        start = time.time()
+        self.incache.append(payload)
+        self.incounts.append(len(payload))
+        self.inc_stat('incache', time.time()-start)
+
+        if len(self.outcache) > 1000:
+            self.flush()
+
+    @instrument
+    def flush(self):
+        if len(self.outcounts) == 0: return
+
+        # serialize key
+        start = time.time()
+        oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
+        fmt = self._serialize_format(self.outcounts, self.spec.outcoords)
+        keysize = struct.calcsize(fmt)
+        if self.outbuf is None or keysize > len(self.outbuf):
+            self.outbuf = create_string_buffer(keysize)
+        struct.pack_into(fmt, self.outbuf, 0, *oencs)
+        self.inc_stat('serout', time.time() - start)
+
+        # serialize val
+        start = time.time()
+        fmt = '%dI' % len(self.incounts)
+        valsize = struct.calcsize(fmt)
+        if self.inbuf is None or valsize > len(self.inbuf):
+            self.inbuf = create_string_buffer(valsize)
+        struct.pack_into(fmt, self.inbuf, 0, *self.incounts)
+        self.inc_stat('serin', time.time() - start)
+
+        def foo(buf, count, offset, mode):
+            if mode in (Spec.COORD_MANY, Spec.KEY):
+                end = offset + 4 * (1 + count)
+            elif mode == Spec.GRID:
+                end = offset + 4 * count
+            elif mode == Spec.BOX:
+                end = offset + 8
+            elif mode == Spec.COORD_ONE:
+                end = offset + 4
+            elif mode == Spec.BINARY:
+                end = offset + 4
+            ret = buf[offset:end]
+
+            if mode == Spec.KEY:
+                h = str(hash(ret) % 4294967296)
+                key = 'key:%s' % h.rjust(10, '_')
+                self.bdb[key] = ret
+                ret = struct.pack('I%ds' % len(key), len(key), key)
+                return ret, end
+            return ret, end
+
+        bdbcost = 0.0
+        koff, voff = 0,0
+        for obox, ocount, icount, payload in zip(self.outboxes, self.outcounts, self.incounts, self.incache):
+            oldvoff = voff
+            val, voff = foo(self.inbuf, icount, voff, self.spec.payload)
+            val = '%s%s' % (val, payload)
+
+            if self.spec.outcoords == Spec.COORD_ONE:
+                for i in xrange(ocount):
+                    key, koff = foo(self.outbuf, 1, koff, self.spec.outcoords)
+                    start = time.time()
+                    self.bdb[key] = val
+                    bdbcost += time.time() - start
+
+            else:
+                obox = (obox[0][0], obox[0][1], obox[1][0], obox[1][1])
+                key, koff = foo(self.outbuf, ocount, koff, self.spec.outcoords)
+                idxkey = 'b:%d' % self.nbdbitems
+                start = time.time()
+                self.bdb[idxkey] = key
+                self.bdb[key] = val
+                self.outidx.set(obox, idxkey)
+                bdbcost += time.time() - start
+                self.nbdbitems += 1
+        self.inc_stat('bdbcost', bdbcost)
+        self.reset_cache()
+        return        
+        
+        # start = time.time()
+        # val = self.get_val(payload)
+        # self.inc_stat('serin', time.time() - start)
+        
+        # mode = self.spec.outcoords
+        # if mode == Spec.COORD_ONE:
+        #     encs = map(self.enc_out, outcoords)
+        #     buf = struct.pack("%dI" % len(encs), *encs)
+        #     for i in xrange(len(outcoords)):
+        #         self.bdb[buf[i*4:i*4+4]] = val
+        # else:
+        #     start = time.time()
+        #     key = self.get_key(outcoords)
             
-            box = bbox(outcoords)
-            idxkey = 'b:%d' % self.nbdbitems
-            self.nbdbitems += 1
-            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), idxkey)
-            self.inc_stat('serout', time.time() - start)
+        #     box = bbox(outcoords)
+        #     idxkey = 'b:%d' % self.nbdbitems
+        #     self.nbdbitems += 1
+        #     self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), idxkey)
+        #     self.inc_stat('serout', time.time() - start)
 
-            start = time.time()
-            self.bdb[idxkey] = key
-            self.bdb[key] = val
-            self.inc_stat('bdb', time.time() - start)
+        #     start = time.time()
+        #     self.bdb[idxkey] = key
+        #     self.bdb[key] = val
+        #     self.inc_stat('bdb', time.time() - start)
 
+    def close(self):
+        self.flush()
+        self.outbuf = self.inbuf = None
+        super(PStore2, self).close()
             
 class PStore3(DiskStore):
     def __init__(self, op, run_id, f, strat):
         super(PStore3, self).__init__(op, run_id, f, strat)
         self.outcache = None
         self.nbdbitems = 0
+        self.outbuf = None
+        self.inbufs = [None] * self.nargs
         
 
     def reset_cache(self):
@@ -895,8 +1035,6 @@ class PStore3(DiskStore):
         self.outboxes = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
-        self.outbuf = None
-        self.inbufs = [None] * self.nargs
         
 
 
@@ -946,22 +1084,26 @@ class PStore3(DiskStore):
         if self.outcache is None:
             self.reset_cache()
 
+        start = time.time()
         box = bbox(outcoords)
         self.outboxes.append(box)
         self.add_to_cache(self.outcache, self.outcounts, outcoords, self.spec.outcoords)
+        self.inc_stat('outcache', time.time() - start)
+
+        start = time.time()
         for cache, counts, incoords in zip(self.incache, self.incounts, incoords_arr):
             self.add_to_cache(cache, counts, incoords, self.spec.payload)
-
+        self.inc_stat('incache', time.time() - start)
 
         if min(map(len,self.incache), len(self.outcache)) >  1000:
             self.flush()
 
+    @instrument
     def flush(self):
         if not len(self.outcache): return
+    
+        start = time.time()
         oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
-        iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
-                  for arridx, incoords in enumerate(self.incache) ]
-
         # serialize outputs into preallocated buffers
         fmt = self._serialize_format(self.outcounts, self.spec.outcoords)
         # lookup or create key buffer        
@@ -969,8 +1111,12 @@ class PStore3(DiskStore):
         if self.outbuf is None or keysize > len(self.outbuf):
             self.outbuf = create_string_buffer(keysize)
         struct.pack_into(fmt, self.outbuf, 0, *oencs)
+        self.inc_stat('serout', time.time() - start)
 
-
+        
+        start = time.time()
+        iencs = [ [ self.enc_in(incoord, arridx) for incoord in incoords ]
+                  for arridx, incoords in enumerate(self.incache) ]
         # serialize the inputs into preallocated buffers
         for arridx, (counts, valbuf, incoords) in  enumerate(zip(self.incounts, self.inbufs, self.incache)):
             iencs = [ self.enc_in(incoord, arridx) for incoord in incoords ]
@@ -980,6 +1126,7 @@ class PStore3(DiskStore):
             if valbuf is None or valsize > len(valbuf):
                 self.inbufs[arridx] = create_string_buffer(valsize)
             struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
+        self.inc_stat('serin', time.time() - start)
 
         def foo(buf, count, offset, mode):
             if mode in (Spec.COORD_MANY, Spec.KEY):
@@ -1071,10 +1218,12 @@ class PStore3(DiskStore):
             elif mode == Spec.COORD_ONE:
                 raise RuntimeError
                 
-
+        bdbcost = 0.0
+        mergecost = 0.0
         keyoffset = 0
         valoffsets = [0] * len(self.inbufs)
         #print len(self.inbufs), len(self.outboxes), len(self.outcounts), map(len, self.incounts)
+
         for obox, ocount,  icounts in zip(self.outboxes, self.outcounts, zip(*self.incounts)):
             obox = (obox[0][0], obox[0][1], obox[1][0], obox[1][1])
             vals = []
@@ -1085,110 +1234,50 @@ class PStore3(DiskStore):
                 vals.append(ba)
             val = ''.join(vals)
 
+            
             if self.spec.outcoords == Spec.COORD_ONE:
                 for i in xrange(ocount):
                     key, keyoffset = foo(self.outbuf, 1, keyoffset, self.spec.outcoords)
+                    
                     if key not in self.bdb:
+                        start = time.time()                        
                         self.bdb[key] = val
+                        bdbcost += time.time()-start                        
                     else:
+                        start = time.time()
                         oldvals = segment_serinputs(val)
                         newvals = vals
                         vals = []
                         for arridx, (oldval, newval) in enumerate(zip(oldvals, newvals)):
                             vals.append(merge_serialized(oldval, newval, arridx))
+                        mergecost += time.time() - start
+
+                        start = time.time()
                         self.bdb[key] = ''.join(vals)
+                        bdbcost += time.time()-start
+                    
 
             else:
                 key, keyoffset = foo(self.outbuf, ocount, keyoffset, self.spec.outcoords)
                 idxkey = 'b:%d' % self.nbdbitems
+                start = time.time()
                 self.bdb[idxkey] = key                
                 self.bdb[key] = val
                 self.outidx.set(obox, idxkey)
                 self.nbdbitems += 1
-            
+                bdbcost += time.time()-start
         
+        self.inc_stat('bdbcost', bdbcost)
+        self.inc_stat('mergecost', mergecost)        
         # reset the cache
         self.reset_cache()                
 
-    def write_old(self, outcoords, *incoords_arr):
-
-        start = time.time()
-        val = StringIO()
-        if Spec.BOX == self.spec.payload:
-            boxes = map(bbox, incoords_arr)
-            for box in boxes:
-                self._serialize(box, val, Spec.BOX)
-        elif Spec.GRID == self.spec.payload:
-            grids = map(gengrid, incoords_arr)
-            for grid in grids:
-                self._serialize(grid, val, Spec.GRID)
-        else:
-            for arridx, incoords in enumerate(incoords_arr):
-                encs = map(lambda coord: self.enc_in(coord, arridx), incoords)
-                self._serialize(encs, val, self.spec.payload)
-        val = val.getvalue()
-        self.inc_stat('serin', time.time() - start)
-
-
-        ostart = time.time()
-        if Spec.COORD_ONE == self.spec.outcoords:
-            try:
-                enc_outcoords = map(self.enc_out, outcoords)
-            except:
-                plog.error('could not encode outcoord\t%s', outcoords )
-                raise
-            key = StringIO()
-            for enc in enc_outcoords:
-                key.seek(0)
-                self._serialize((enc,), key, self.spec.outcoords)
-                keystr = key.getvalue()
-                if keystr not in self.bdb:
-                    start = time.time()
-                    self.bdb[keystr] = val
-                    self.inc_stat('bdb', time.time() - start)
-                else:
-                    # fuck, need to add provenance to existing data in the bdb
-                    if Spec.BOX == self.spec.payload:
-                        raise RuntimeError, "Don't support appending to existing provenance for BOX"
-
-                    old_encs = self.extract_allincells_enc((None, self.bdb[keystr]))
-
-                    newval = StringIO()
-                    for incoords, old_enc in zip(incoords_arr, old_encs):
-                        encs = map(lambda coord: self.enc_in(coord, arridx), incoords)
-                        encs.extend(old_enc)
-                        self._serialize(encs, newval, self.spec.payload)
-                    newval = newval.getvalue()
-
-                    start = time.time()
-                    self.bdb[keystr] = newval
-                    self.inc_stat('bdb', time.time() - start)
-        elif Spec.BOX == self.spec.outcoords:
-            key = StringIO()
-            box = bbox(outcoords)
-            self._serialize(box, key, Spec.BOX)
-            key = key.getvalue()
-            
-            start = time.time()
-            self.bdb[key] = val
-            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), None)
-            self.inc_stat('bdb', time.time() - start)
-        else:
-            enc_outcoords = map(self.enc_out, outcoords)
-            box = bbox(outcoords)
-            key = StringIO()
-            self._serialize(enc_outcoords, key, self.spec.outcoords)
-            key = key.getvalue()
-            
-            start = time.time()
-            self.bdb[key] = val
-            self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), key)
-            self.inc_stat('bdb', time.time() - start)
-            
-        self.inc_stat('serout', time.time() - ostart)
 
     def close(self):
         self.flush()
+        self.outbuf = None
+        self.inbufs = [None] * self.nargs
+        
         super(PStore3, self).close()
         
 
@@ -1672,7 +1761,7 @@ class CompositePStore(IPstore):
 
 
 if __name__ == '__main__':
-    coord = None
+    coord = 'aaaaaaaaaaaa'
 
     def run(npoints):
         idx = SpatialIndex('/tmp/test')
@@ -1700,7 +1789,9 @@ if __name__ == '__main__':
         cost1, cost2 = run(i)
         datsize = os.path.getsize('/tmp/test_rtree.dat')
         idxsize = os.path.getsize('/tmp/test_rtree.idx')
-        print '%d\t%f\t%f\t%f\t%f\t%f' % (i, cost2 / i, cost1, cost2, datsize/1048576.0, idxsize / 1048576.0)
+        bdbsize = os.path.getsize('/tmp/test_rtree.bdb')
+        print '%d\t%f\t%f\t%f\t%f\t%f\t%f' % (i, cost2 / i, cost1, cost2,
+                                              datsize/1048576.0, idxsize / 1048576.0, bdbsize/1048576.0)
     exit()
 
     idx.set((0,0,1,1), '0')
