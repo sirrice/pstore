@@ -200,7 +200,7 @@ def run_exp(db, configs):
 
         # query the provenance store
         # vary query size
-        qsizes = [1, 10, 100, 1000, 2000]
+        qsizes = [1000]
         qcosts = []
         for qsize in qsizes:
             q = []
