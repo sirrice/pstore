@@ -355,7 +355,7 @@ class Workflow(object):
             pstore = Runtime.instance().get_pstore(op, run_id) 
             if pstore is None: raise RuntimeError
             child = pstore.join(child, arridx, backward=False)
-
+            
             child = DedupQuery(child, shape)
             wlog.debug( 'Fpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
 

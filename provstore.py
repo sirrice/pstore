@@ -16,6 +16,7 @@ logging.basicConfig()
 plog.setLevel(logging.INFO)
 
 
+
 #
 # obj is defined as unparsed inputs and outputs
 # (serialized outputs, serialized inputs)
@@ -88,6 +89,77 @@ def decgrid(box, negs):
     arr[zip(*negs)] = False
     return map(lambda coord: (coord[0]+box[0][0], coord[1]+box[0][1]), np.argwhere(arr))
 
+        
+class BinaryRTree(index.Index):
+    def dumps(self, obj):
+        return obj
+    def loads(self, s):
+        return s
+
+class SpatialIndex(object):
+    def __init__(self, fname):
+        self.fname = '%s_rtree' % fname
+        self.rtree = None
+        #self.bdb = None
+        self.id = 0
+        p = index.Property()
+        p.dimension = 2
+        p.filename = self.fname
+        self.p = p
+        
+
+    def set(self, box, val):
+        self.rtree.add(self.id, box, val)
+        self.id += 1
+        #if val is not None:
+         #   self.bdb[str(self.id)] = val
+
+    def get_pt(self, pt):
+        return self.rtree.intersection(pt, objects = True)
+        # for item in self.rtree.intersection(pt, objects = True):
+        #     item.object = self.bdb.get(str(item.id), None)
+        #     yield item
+
+    def get_box(self, box):
+        return self.rtree.intersection(box, objects = True)
+        # for item in self.rtree.intersection(box, objects = True):
+        #     item.object = self.bdb.get(str(item.id), None)
+        #     yield item
+
+    def disk(self):
+        try:
+            idxsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_idx_extension()))
+            datsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_dat_extension()))
+            #bdbsize = os.path.getsize('%s.%s' % (self.p.get_filename(), 'bdb'))
+            return idxsize + datsize
+        except:
+            raise
+            return 0
+
+
+    def open(self, new=False):
+        p = self.p
+        if new:
+            try:
+                self.delete()
+            except:
+                pass
+        self.rtree = BinaryRTree(p.get_filename(), properties=p)
+        #self.bdb = bsddb.hashopen('%s.bdb'% p.get_filename(), 'n')
+
+    def close(self):
+        self.rtree.close()
+        #self.bdb.close()
+
+    def delete(self):
+        p = self.p
+        try:
+            os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
+            os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
+            #os.unlink('%s.%s' % (p.get_filename(), 'bdb'))
+        except:
+            raise
+
     
 
 def in_box(incoord, box):
@@ -123,6 +195,17 @@ def alltoall(fn):
             return AllToAllScan(self.inshapes[arridx])
         return AllToAllScan(self.outshape)
     return w
+
+
+
+
+
+
+
+
+
+
+
 
 
 class IPstore(object):
@@ -578,12 +661,8 @@ class DiskStore(IPstore):
 
 
         
-        predcost = 0.0
-        matchcost = 0.0
-        extractcost = 0.0
-        niter = 0.0
-        npred = 0.0
-        nmatches = 0.0
+
+        extractcost, parsecost, nhits = 0.0, 0.0, 0.0
 
 
         # pred
@@ -603,26 +682,29 @@ class DiskStore(IPstore):
             else:
                 pred = self.extract_outcells_enc
                 matches = lambda coord, outcoords: self.enc_out(coord) in outcoords
-                #left = map(self.enc_out, left)
                 getkey = lambda item: self.bdb[item.object]
             extract = lambda obj: self.extract_incells(obj, arridx)
 
+            
             for l in left:
                 l = tuple(l)
-
-                for item in self.outidx.get_pt(l):
-                    key = getkey(item)
+                items = self.outidx.get_pt(l)
+                for item in items:
                     r = (key, self.bdb[key])
+                    start = time.time()
                     coords = pred(r)
+                    parsecost += time.time()
                     b = matches(l, coords)
+                    nhits += 1
                     if b:
                         start = time.time()
                         e = extract(r)
-
                         extractcost += time.time() - start
                         for coord in e:
                             yield coord
-            
+            self.inc_stat('parsecost', parsecost)
+            self.inc_stat('extractcost', extractcost)
+            self.inc_stat('nhits', nhits)
 
         else:  # forward query
             if Spec.BOX == self.spec.payload:
@@ -644,14 +726,10 @@ class DiskStore(IPstore):
                 niter += 1
                 start = time.time()
                 coords = pred(r) #
-                predcost += time.time() - start
-                npred += len(coords)
+                parsecost += time.time() - start
 
                 for l in left:
-                    start = time.time()
                     b = matches(l, coords)
-                    matchcost += time.time() - start
-                    nmatches += 1
                     if b:
                         start = time.time()
                         e = extract(r)
@@ -659,12 +737,10 @@ class DiskStore(IPstore):
                         for coord in e:
                             yield coord
                         break
+            self.inc_stat('parsecost', parsecost)
+            self.inc_stat('extractcost', extractcost)
         self.close()
         
-        plog.debug( "n/left:   %d\t%d", niter, len(left) )
-        plog.debug( "predcost: %f\t%d", predcost, npred )
-        plog.debug( "match:    %f\t%f\t%d", matchcost, matchcost / (1.0+nmatches), nmatches )
-        plog.debug( "extract:  %f", extractcost )
 
     def hash_join(self, left, arridx):
         datacost = 0.0
@@ -729,77 +805,6 @@ class DiskStore(IPstore):
         except:
             raise
 
-
-        
-class BinaryRTree(index.Index):
-    def dumps(self, obj):
-        return obj
-    def loads(self, s):
-        return s
-
-class SpatialIndex(object):
-    def __init__(self, fname):
-        self.fname = '%s_rtree' % fname
-        self.rtree = None
-        #self.bdb = None
-        self.id = 0
-        p = index.Property()
-        p.dimension = 2
-        p.filename = self.fname
-        self.p = p
-        
-
-    def set(self, box, val):
-        self.rtree.add(self.id, box, val)
-        self.id += 1
-        #if val is not None:
-         #   self.bdb[str(self.id)] = val
-
-    def get_pt(self, pt):
-        return self.rtree.intersection(pt, objects = True)
-        # for item in self.rtree.intersection(pt, objects = True):
-        #     item.object = self.bdb.get(str(item.id), None)
-        #     yield item
-
-    def get_box(self, box):
-        return self.rtree.intersection(box, objects = True)
-        # for item in self.rtree.intersection(box, objects = True):
-        #     item.object = self.bdb.get(str(item.id), None)
-        #     yield item
-
-    def disk(self):
-        try:
-            idxsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_idx_extension()))
-            datsize = os.path.getsize('%s.%s' % (self.p.get_filename(), self.p.get_dat_extension()))
-            #bdbsize = os.path.getsize('%s.%s' % (self.p.get_filename(), 'bdb'))
-            return idxsize + datsize
-        except:
-            raise
-            return 0
-
-
-    def open(self, new=False):
-        p = self.p
-        if new:
-            try:
-                self.delete()
-            except:
-                pass
-        self.rtree = BinaryRTree(p.get_filename(), properties=p)
-        #self.bdb = bsddb.hashopen('%s.bdb'% p.get_filename(), 'n')
-
-    def close(self):
-        self.rtree.close()
-        #self.bdb.close()
-
-    def delete(self):
-        p = self.p
-        try:
-            os.unlink('%s.%s' % (p.get_filename(), p.get_idx_extension()))
-            os.unlink('%s.%s' % (p.get_filename(), p.get_dat_extension()))
-            #os.unlink('%s.%s' % (p.get_filename(), 'bdb'))
-        except:
-            raise
 
         
 
@@ -988,32 +993,6 @@ class PStore2(DiskStore):
                 self.nbdbitems += 1
         self.inc_stat('bdbcost', bdbcost)
         self.reset_cache()
-        return        
-        
-        # start = time.time()
-        # val = self.get_val(payload)
-        # self.inc_stat('serin', time.time() - start)
-        
-        # mode = self.spec.outcoords
-        # if mode == Spec.COORD_ONE:
-        #     encs = map(self.enc_out, outcoords)
-        #     buf = struct.pack("%dI" % len(encs), *encs)
-        #     for i in xrange(len(outcoords)):
-        #         self.bdb[buf[i*4:i*4+4]] = val
-        # else:
-        #     start = time.time()
-        #     key = self.get_key(outcoords)
-            
-        #     box = bbox(outcoords)
-        #     idxkey = 'b:%d' % self.nbdbitems
-        #     self.nbdbitems += 1
-        #     self.outidx.set((box[0][0], box[0][1], box[1][0], box[1][1]), idxkey)
-        #     self.inc_stat('serout', time.time() - start)
-
-        #     start = time.time()
-        #     self.bdb[idxkey] = key
-        #     self.bdb[key] = val
-        #     self.inc_stat('bdb', time.time() - start)
 
     def close(self):
         self.flush()
@@ -1783,7 +1762,26 @@ if __name__ == '__main__':
         db.close()
         end2 = time.time()
         return end1-start, end2-start
-        
+
+    def gen(bsize):
+        for i in xrange(10000):
+            x,y = random.randint(0, 99), random.randint(0, 99)
+            yield (i, (x,y,x+bsize, y+bsize), 'b:%d' % i)
+    from rtree import Rtree
+    for nboxes in (1, 100, 1000):
+        for bsize in (1, 5, 6, 10):
+            idx = Rtree(gen(bsize))
+            nres = 0
+            start = time.time()
+            for i in xrange(1000):
+                pt = (random.randint(0, 99),random.randint(0, 99))
+                pt = (-1,-1)
+                for x in idx.intersection(pt, objects=True):
+                    nres += 1
+            cost = time.time() - start
+            print '%d\t%d\t%d\t' % (nboxes, bsize, nres/1000.0), cost / 1000.0
+    exit()
+
 
     for i in (10, 100, 1000, 10000, 100000):
         cost1, cost2 = run(i)

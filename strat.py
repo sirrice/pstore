@@ -108,23 +108,19 @@ class Desc(object):
             s = "Q"
         elif self.mode == Mode.PTR:
             x = []
-            if self.spec.payload == Spec.BOX:
-                x.append("BOX")
-            else:
-
-                for foo in (self.spec.outcoords, self.spec.payload):
-                    if foo == Spec.KEY:
-                        x.append('KEY')
-                    elif foo == Spec.COORD_MANY:
-                        x.append("MANY")
-                    elif foo == Spec.COORD_ONE:
-                        x.append("ONE")
-                    elif foo == Spec.BOX:
-                        x.append("BOX")
-                    elif foo == Spec.GRID:
-                        x.append("GRID")
-                    else:
-                        x.append(str(foo))
+            for foo in (self.spec.outcoords, self.spec.payload):
+                if foo == Spec.KEY:
+                    x.append('KEY')
+                elif foo == Spec.COORD_MANY:
+                    x.append("MANY")
+                elif foo == Spec.COORD_ONE:
+                    x.append("ONE")
+                elif foo == Spec.BOX:
+                    x.append("BOX")
+                elif foo == Spec.GRID:
+                    x.append("GRID")
+                else:
+                    x.append(str(foo))
             x.append(self.backward and 'b' or 'f')
             s = "_".join(x)
 

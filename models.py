@@ -35,6 +35,20 @@ def get_parse_costs(desc):
     return outcost, incost
 
 
+def index_model(strat, fanin, fanout, density, noutput):
+    cost = 0.0
+    for bucket in strat.buckets:
+        for desc in bucket.descs:
+            cost += index_model_desc(desc, fanin, fanout, density, noutput)
+    return cost
+
+def index_model_desc(desc, fanin, fanout, density, noutput):
+    if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
+        return 0
+    if desc.spec.outcoords == Spec.COORD_ONE:
+        return 0
+    return ( noutput / fanout ) + (24 + 60.18) + 7340
+
 
 def disk_model(strat, fanin, fanout, density, noutput):
     cost = 0.0
@@ -44,63 +58,112 @@ def disk_model(strat, fanin, fanout, density, noutput):
     return cost
     
 
+
+def get_disk_params(spec, fanin, fanout, density, noutput, payload):
+    a,b = 1,1
+    okey = ikey = ptr = idx = 0
+    nentries = 0
+    if spec[0] == Spec.COORD_ONE:
+        nptrs = noutput
+        nentries = 1
+        if spec[1] == Spec.KEY:
+            a, b = 1.5,  15.9
+            ikey = ( 18 + 4 * (1 + fanin) ) / fanout
+            ptr = ( 18 + 4 )
+            nentries = 1 + 1.0 / fanout
+        elif spec[1] == Spec.COORD_MANY:
+            a,b = 2.31,  9.986
+            ptr = 4 + 4 * (fanin + 1)
+        elif spec[1] == Spec.GRID:
+            a,b = 2.31701812,  9.98665472
+            negs = 4 * (2 + 1 + (math.ceil((fanin/density) ** 0.5) ** 2) - fanin)
+            ptr = 4 + negs
+        elif spec[1] == Spec.BOX:
+            a,b = 1.75343538, 41.79651412
+            ptr = 12
+        elif spec[1] == Spec.BINARY:
+            a,b = 1.75343538, 41.79651412
+            ptr = 4 + 4 + payload
+    elif spec[0] == Spec.COORD_MANY:
+        nptrs = noutput / fanout
+        outsize = ( 4 + 4 * (fanout + 1) )
+        idx = 4 + outsize
+        nentries = 2
+        if spec[1] == Spec.KEY:
+            a,b = 1.3, 50
+            ikey = ( 18 + 4 * (1 + fanin) ) 
+            ptr = 18 + outsize
+            nentries = 3
+        elif spec[1] == Spec.COORD_MANY:
+            a,b =  2.02,  36.1
+            ptr = 4 * (1 + fanin) + outsize
+        elif spec[1] == Spec.GRID:
+            a,b =  2.02,  36.1
+            negs = 4 * ( 2 + 1 + (math.ceil((fanin/density) ** 0.5) ** 2) - fanin)
+            ptr = negs + outsize
+        elif spec[1] == Spec.BOX:
+            a,b = 1.75343538, 41.79651412
+            ptr = 8 + outsize
+        elif spec[1] == Spec.BINARY:
+            a,b = 1.75343538, 41.79651412
+            ptr = outsize + 4 + payload
+
+    elif spec[0] == Spec.KEY:
+        nptrs = noutput / fanout
+        idx = (4 + 18)
+        okey = ( 18 + 4 * (1 + fanout) )
+        nentries = 3
+        if spec[1] == Spec.KEY:
+            a,b = 2.99000236, -9.01436915
+            ikey = ( 18 + 4 * (1 + fanin) )
+            ptr = 18 + 18
+            nentries += 1
+        elif spec[1] == Spec.BOX:
+            a,b = 2.68105634,  4.94986864
+            ptr = 18 + 8
+        elif spec[1] == Spec.COORD_MANY:
+            a,b = 1.35 , 46.3
+            ptr = ( 18 + (4 + 4*(fanin + 1)) )
+        elif spec[1] == Spec.GRID:
+            a,b = 1.35 , 46.3
+            negs = 4 * ( 2 + 1 + (math.ceil((fanin/density) ** 0.5) ** 2) - fanin)
+            ptr = negs + 18
+        elif spec[1] == Spec.BINARY:
+            a,b = 1.75343538, 41.79651412
+            ptr = 18 + 4 + payload
+
+    return a,b,okey,ikey,ptr,idx,nentries    
     
-def disk_model_desc(desc, fanin, fanout, density, noutput):
+def disk_model_desc(desc, fanin, fanout, density, noutput, payload=2):
     #desc.mode, desc.spec, desc.backward
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
         return 0
-    elif desc.mode == Mode.PT_MAPFUNC:
-        if desc.spec.outcoords == Spec.COORD_MANY:
-            return noutput * 4.25 + (noutput / fanin) * 8
-        return noutput * (8 + 4.25)
 
-    ncalls = math.ceil(noutput / float(fanout))
     spec = (desc.spec.outcoords, desc.spec.payload)
+    idxsize = index_model_desc(desc, fanin, fanout, density, noutput)    
     disk = 0
 
-    if desc.backward:
-        disk = fanout * 4.25
-        if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            disk += fanout * fanin * 4.25
-        elif spec == (Spec.COORD_ONE, Spec.KEY):
-            disk += fanin * 4.25 + fanout * 28 + 28
-        elif spec == (Spec.COORD_ONE, Spec.BOX):
-            disk += fanout * 16
-        elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            disk += fanin * 4.25
-        elif spec == (Spec.COORD_MANY, Spec.KEY):
-            disk += fanin * 4.25 + 28 * 2
-        elif spec == (Spec.COORD_MANY, Spec.BOX):
-            disk += 16
-        elif spec == (Spec.COORD_MANY, Spec.GRID):
-            nnegs = fanin / density * (1.0 - density)
-            disk += 16 + nnegs * 4.25
-        elif spec == (Spec.COORD_ONE, Spec.GRID):
-            nnegs = fanin / density * (1.0 - density)
-            disk += fanout * (16 + nnegs * 4.25)
-            
+    if spec[0] == Spec.COORD_ONE:
+        nptrs = noutput
     else:
-        disk = fanin * 4.25
-        if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            disk += fanout * fanin * 4.25
-        elif spec == (Spec.COORD_ONE, Spec.KEY):
-            disk += fanout * 4.25 + fanin * 28 + 28
-        elif spec == (Spec.COORD_ONE, Spec.BOX):
-            disk += fanin * 16
-        elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            disk += fanout * 4.25
-        elif spec == (Spec.COORD_MANY, Spec.KEY):
-            disk += fanout * 4.25 + 28 * 2
-        elif spec == (Spec.COORD_MANY, Spec.BOX):
-            disk += 16
-        elif spec == (Spec.COORD_MANY, Spec.GRID):
-            nnegs = fanout / density * (1.0 - density)
-            disk += 16 + nnegs * 4.25
-        elif spec == (Spec.COORD_ONE, Spec.GRID):
-            nnegs = fanout / density * (1.0 - density)
-            disk += fanin * (16 + nnegs * 4.25)
+        nptrs = int(math.ceil(noutput / float(fanout)))
 
-    return int( math.ceil(disk * ncalls / 4096.0) * 4096 ) #+ ncalls * 312 + 12288
+
+    if desc.backward:
+        a,b,okey,ikey,ptr,idx,nentries = get_disk_params(spec, fanin, fanout, density, noutput, payload)
+    else:
+        a,b,okey,ikey,ptr,idx,nentries = get_disk_params(spec, fanout, fanin, density, noutput, payload)
+        # fix things
+        if spec == (Spec.COORD_ONE, Spec.KEY):
+            ikey = ( 18 + 4 * (1 + fanin) ) / fanout
+            nentries = 1 + 1.0 / fanout
+        if spec[0] != Spec.COORD_ONE:
+            nptrs = noutput / fanout
+        else:
+            nptrs = noutput / fanout * fanin
+        
+    disk = nptrs * ( ( okey + ikey + ptr + idx ) * a + nentries * b )    
+    return idxsize + int( math.ceil(disk/ 4096.0) * 4096 ) 
 
 def write_model(strat, fanin, fanout, density, noutput, opcost):
     cost = 0.0
@@ -114,82 +177,124 @@ def write_model_desc(desc, fanin, fanout, density, noutput, opcost):
         return 0.00001
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0.0
+
+
+        
+
+    nptrs = noutput / fanout
+    spec = (desc.spec.outcoords, desc.spec.payload)
     
-    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 13.0
-
-    # cost to just generate the coordinates
-    #  - measured to be 1e-5 per pointer * (noutput * fanin)
-    #    for the general case: transpose etc
-    genprovcost = noutput * fanin * 1e-5
-
-    # cost to serialize per cell
-    coord_one  = (5.6e-6, 5.6e-6)
-    coord_many = (9.8e-6, 5.9e-7)
-    box        = (4.6e-6, 2.3e-6)
-    key        = (2.5e-5, 6.2e-7)
-    none       = (4.1e-6, 5.5e-7)
-
+    disk = disk_model_desc(desc, fanin, fanout, density, noutput) 
+    index =  index_model_desc(desc, fanin, fanout, density, noutput)
+    diskcost = (disk - index) / 1048576.0 / 13.0
+    idxcost = 0
+    if spec[0] != Spec.COORD_ONE:
+        a,b = 3.26775170e-06,   1.39564528e-04
+        idxcost = a * index + b * nptrs
 
     if desc.mode == Mode.PT_MAPFUNC:
-        if desc.spec.outcoords == Spec.COORD_MANY:
-            if desc.backward:
-                if fanout <= 10:
-                    return diskcost + noutput * coord_many[0]
-                return diskcost + noutput * coord_many[1]
-        if desc.spec.outcoords == Spec.COORD_ONE:
-            return diskcost + noutput * coord_one[0]
-
-    # update stats costs
-    statscost = (noutput / fanout) * (fanout + fanin) * 0.000003
-
-    sercost = ser_model_desc(desc, fanin, fanout, density, noutput) * 10 # seem to be 10x off reality
-    return sercost + diskcost + opcost * 0.4 + statscost
-
-def ser_model_desc(desc, fanin, fanout, density, noutput):
-    if desc.mode in (Mode.STAT, Mode.NOOP):
-        return 0.0
-    # cost to serialize per cell
-    coord_one  = (5.6e-6, 5.6e-6)
-    coord_many = (9.8e-6, 5.9e-7)
-    box        = (4.6e-6, 7e-7)# 2.3e-6)
-    key        = (2.5e-5, 6.2e-7)
-    none       = (4.1e-6, 5.5e-7)
-    coord_one = coord_many = box = key = none = (9.8e-6, 5.9e-7)
-
-    ncalls = int(math.ceil(noutput / float(fanout)))
-    spec = (desc.spec.outcoords, desc.spec.payload)
-    if desc.backward:
-        if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            cost = fanout * coord_one[0] + fanout * fanin * coord_many[1]
-        elif spec == (Spec.COORD_ONE, Spec.KEY):
-            cost = fanout * coord_one[0] + fanin * key[1]
-        elif spec == (Spec.COORD_ONE, Spec.BOX):
-            cost = fanout * (coord_one[0] + fanin * box)
-        elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            cost = fanout * coord_many[1] + fanin * coord_many[1]
-        elif spec == (Spec.COORD_MANY, Spec.KEY):
-            cost = fanout * coord_many[1] + fanin * key[1]
-        elif spec == (Spec.COORD_MANY, Spec.BOX):
-            cost = fanout * coord_many[1] + fanin * box[1]
+        # serialization costs
+        sercost = 0.0
+        nser = 0.0
+        if spec[0] == Spec.BOX:
+            nser += 2
+        elif spec[0] == Spec.GRID:
+            nser += 3 + (math.ceil((fanout/density) ** 0.5) ** 2) - fanout
         else:
-            raise RuntimeError, str(desc)
+            if spec[0] in ( Spec.COORD_MANY, Spec.KEY ):
+                nser += 1
+            nser += fanin
+        nser *= nptrs
+        sercost += (1.07e-06 / nser + 4.87e-08) * nser
+
+        
+        accost = fanout == 1 and  5.17e-7 or 1.07e-6
+        addtocachecosts = nptrs * fanin * accost
+
+        # foo() costs
+        if spec[0] == Spec.COORD_ONE:
+            foocost = 2.3e-5 * (nptrs + noutput)
+        else:
+            foocost = 2.3e-5 * (nptrs * 2)
+        ovcost = sercost + addtocachecosts + foocost
     else:
-        if spec == (Spec.COORD_ONE, Spec.COORD_MANY):
-            cost = fanin * coord_one[0] + fanout * fanin * coord_many[1] * ncalls * 0.3
-        elif spec == (Spec.COORD_ONE, Spec.KEY):
-            cost = fanin * coord_one[0] + fanout * key[1] * ncalls * 0.3
-        elif spec == (Spec.COORD_ONE, Spec.BOX):
-            cost = fanin * (coord_one[0] + fanout * box * ncalls * 0.3 )
-        elif spec == (Spec.COORD_MANY, Spec.COORD_MANY):
-            cost = fanin * coord_many[1] + fanout * coord_many[1]
-        elif spec == (Spec.COORD_MANY, Spec.KEY):
-            cost = fanin * coord_many[1] + fanout * key[1]
-        elif spec == (Spec.COORD_MANY, Spec.BOX):
-            cost = fanin * coord_many[1] + fanout * box[1]
+        if desc.backward:
+            ovcost = overhead_costs(desc, fanin, fanout, density, noutput, nptrs)
         else:
-            raise
-                
-    return cost * ncalls
+            ovcost = overhead_costs(desc, fanout, fanin, density, noutput / fanout * fanin, nptrs)
+
+    return idxcost + diskcost + ovcost
+
+def overhead_costs(desc, fanin, fanout, density, noutput, nptrs):
+    spec = (desc.spec.outcoords, desc.spec.payload)    
+    # serialization costs
+    sercost = 0.0
+    nser = 0.0
+    if spec[0] == Spec.BOX:
+        nser += 2
+    elif spec[0] == Spec.GRID:
+        nser += 3 + (math.ceil((fanout/density) ** 0.5) ** 2) - fanout
+    else:
+        if spec[0] in ( Spec.COORD_MANY, Spec.KEY ):
+            nser += 1
+        nser += fanin
+
+    if spec[1] == Spec.BOX:
+        nser += 2
+    elif spec[1] == Spec.GRID:
+        nser += 3 + (math.ceil((fanout/density) ** 0.5) ** 2) - fanout
+    elif spec[1] == Spec.BINARY:
+        nser += 1
+    else:
+        if spec[1] in ( Spec.COORD_MANY, Spec.KEY ):
+            nser += 1
+        nser += fanout
+    nser *= nptrs
+    sercost += (1.07e-06 / nser + 4.87e-08) * nser
+
+    # key overheads
+    keycost = 0.0
+    # nkeys = 0.0
+    # if spec[0] == Spec.KEY:
+    #     nkeys += noutput / fanout
+    # if spec[1] == Spec.KEY:
+    #     nkeys += noutput / fanout
+    # keycost = (nkeys) * 0.00012
+
+
+    # input/output addtocache costs
+    addtocachecosts = 0.0
+    accost = 0.0
+    if fanout == 1:
+        accost += 5.17e-7
+    else:
+        accost += 1.07e-6
+
+    
+    if spec[1] == Spec.BOX:
+        if fanin == 1:
+            accost += 5.17e-7
+        else:
+            accost += 1.07e-6
+    elif spec[1] == Spec.GRID:
+        a,b,c = 1.33e-9,   1.96e-06,  -7.19e-10
+        if fanin == 1:
+            accost += 4.57239151001e-05
+        else:
+            accost += a * fanin + b / density + c * fanin / density
+    addtocachecosts = nptrs * fanin * accost
+
+
+    # foo() costs
+    if spec[0] == Spec.COORD_ONE:
+        foocost = 2.3e-5 * (nptrs + noutput)
+    else:
+        foocost = 2.3e-5 * (nptrs * 2)
+
+    # collision costs
+
+    return sercost + addtocachecosts + keycost  + foocost
+
 
 
 def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
@@ -321,6 +426,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
         itercost = (noutput / fanout) * nqs * 0.000001
         #print '\titercost', itercost, (noutput / fanout * nqs), noutput, nqs, fanout
         return diskcost + itercost + noutput / fanout * 2e-6  + dedupcost
+
 
 
     coord_one = 8.51511955261e-6

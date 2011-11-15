@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
             path_ops = [x[0] for x in path]
             pqid = Stats.instance().add_pq(w._runid-1, path_ops, direction,
-                                           [len(inputs)], qcost, maxoutput)
+                                           [len(inputs)], qcost, n)
             print "results", n, qcost
         return totalcost
             
