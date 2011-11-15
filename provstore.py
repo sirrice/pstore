@@ -690,6 +690,7 @@ class DiskStore(IPstore):
                 l = tuple(l)
                 items = self.outidx.get_pt(l)
                 for item in items:
+                    key = getkey(item)
                     r = (key, self.bdb[key])
                     start = time.time()
                     coords = pred(r)
