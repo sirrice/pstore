@@ -310,75 +310,17 @@ def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inp
 
 def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
-        return backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea)
+        return sum(backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea))
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0.0
-    
-    
-    outcost, incost = get_parse_costs(desc)
-    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
-    ncalls = int(math.ceil(noutput / float(fanout)))
-    dedupcost = nqs * sel * 1e-6 # cost of load() in dedup.  includes overlap of results
-
     if desc.mode == Mode.PT_MAPFUNC:
-        itercost = (noutput / fanout) * nqs * 0.000001
-        return diskcost + itercost + noutput / fanout * 2e-6 + dedupcost
-        
-    coord_one = 8.51511955261e-6
-    coord_many = 1.36479878426e-6
-    box = 4.33921813965e-6
-    key = 7.15684890747e-6
-    none = 2.87890434265e-6
+        return 1000000000
 
-    # == if hash join ==
-    if not desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
-        coord_one = 7.102e-6
-        parsecost = nqs * coord_one
-
-        extractcost = fanout * outcost
-        extractcost *= nqs * sel
-        datacost = nqs * sel *  0.000007 # cost to get data from bdb        
-
-        qcost = parsecost + extractcost + datacost + dedupcost
-        return qcost
-    elif not desc.backward:
-        # if optimized for forward queries
-        parsecost = 0
-
-        # X --> Y
-        # parse all of X
-        # parse some of Y
-
-        parsecost = fanin * (noutput / fanout) * incost
-        extractcost = fanout * outcost * sel
-        matchcost = (noutput / fanout) * 0.000001   # cost to execute join predicate        
-        qcost = parsecost + extractcost + matchcost
-        qcost *= nqs        
-        
-    else:
-        # if optimized for backward queries
-        # iterate through everything, read the inputs
-
-        # X --> Y
-        # X * Y --> Y
-        # parse X * Y
-        # parse some of Y
-
-        nptrs = desc.spec.outcoords == Spec.COORD_ONE and noutput or noutput / fanout
-        parsecost = fanin * incost * nqs * nptrs
-
-        if desc.spec.payload == Spec.BOX:
-            extractcost = box_model(density, fanin, inputarea, runtime, nptrs)
-            # perc = min((fanin / density), inputarea) / float(inputarea)
-            # nreexec = (noutput / fanout) * perc * nqs
-            # extractcost = runtime * perc * nreexec
-        else:
-            extractcost = fanout * outcost * nqs * sel
-        matchcost = nptrs * nqs * 0.000001   # cost to execute join predicate                
-
-        qcost = parsecost + extractcost + matchcost 
-    
-    return diskcost + qcost + dedupcost
+    nentries = noutput / fanout
+    if not desc.backward:
+        desc = Desc(desc.mode, desc.spec, True)
+        return sum(backward_model_desc(desc, fanout, fanin, density, noutput, runtime, nqs, sel, inputarea, nentries))
+    return 1000000000
     
 def box_model(density, fanin, inputarea, runtime, nptrs):
     a,b,c = 0.08147001934235978, 0.00852998065764022, 1.4085629809324707
@@ -395,39 +337,20 @@ def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, in
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
-            cost = backward_model_desc(desc, fanin, fanout, density, noutput,
-                                       runtime, nqs, sel, inputarea=inputarea)
+            cost = sum(backward_model_desc(desc, fanin, fanout, density, noutput,
+                                           runtime, nqs, sel, inputarea=inputarea))
             bcost += cost
         scost = min(scost, bcost)
     return scost
 
 
-def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
+def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, nentries=None):
     if desc.mode in (Mode.STAT, Mode.NOOP):
-        return 0.0
+        return 0,0,0,0
     if desc.mode == Mode.QUERY:
-        return runtime + nqs * sel * 1e-6
+        return runtime + nqs * sel * 1e-6,0,0,0
     if desc.mode == Mode.FULL_MAPFUNC:
-        return nqs * 1e-6
-    
-    outcost, incost = get_parse_costs(desc)
-    diskcost = (disk_model_desc(desc, fanin, fanout, density, noutput) / 1048576.0) / 55.0
-    ncalls = int(math.ceil(noutput / float(fanout)))
-    dedupcost = nqs * fanin * 1e-6 # cost of load() in dedup.  includes overlap of results
-
-    if desc.mode == Mode.PT_MAPFUNC:
-        if desc.backward and desc.spec.outcoords== Spec.COORD_ONE:
-            sercost = nqs * 0.000008  # cost to serialize coords into bdb key
-            extractcost = nqs * sel * 0.000016 # cost to extract data from pointers
-            datacost = nqs * sel *  0.000007 # cost to get data from bdb
-            return diskcost + sercost + extractcost + datacost + dedupcost
-
-        # n iterations * nqs in each iteration
-        itercost = (noutput / fanout) * nqs * 0.000001
-        #print '\titercost', itercost, (noutput / fanout * nqs), noutput, nqs, fanout
-        return diskcost + itercost + noutput / fanout * 2e-6  + dedupcost
-
-
+        return nqs * 1e-6,0,0,0
 
     coord_one = 8.51511955261e-6
     coord_many = 1.36479878426e-6
@@ -435,44 +358,74 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
     key = 7.15684890747e-6
     none = 2.87890434265e-6
 
-    # == if hash join ==
-    if desc.backward and desc.spec.outcoords == Spec.COORD_ONE:
-        coord_one = 7.102e-6
-        parsecost = nqs * coord_one
 
-        if desc.spec.payload == Spec.BOX:
-            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
-        else:
-            extractcost = fanin * incost
-        extractcost *= nqs * sel
-        datacost = nqs * sel *  0.000007 # cost to get data from bdb
+    if nentries == None:
+        nentries = noutput / fanout
 
-        qcost = parsecost + extractcost + extractcost + datacost + dedupcost
-        return qcost
-
-    elif desc.backward:
-        parsecost = fanout * (noutput / fanout) * outcost
-
-        if desc.spec.payload == Spec.BOX:
-            a,b,c = 0.10013271527592049, 0.00022428472407952143, 1.5845707477154047
-            baseline = a + b / (density ** c)
-            perc = min((fanin / density), inputarea) / float(inputarea)
-            extractcost = (baseline + runtime * perc) * sel 
-        else:
-            extractcost = fanin * incost * sel
-        matchcost = (noutput / fanout) * 0.000001   # cost to execute join predicate
-
-        qcost = parsecost + extractcost + matchcost
-        qcost *= nqs
         
+    boxcost = parsecost = bdbcost = 0
+    if not desc.backward:
+        return 1000000,0,0,0
+
+    if desc.spec.outcoords == Spec.COORD_ONE:
+        idxcost = 0
+
+        a,b =    1.95947313e-10,   3.94434154e-08
+        entrysize = 30
+        bdbcost = nqs * (1.0 - sel) * 4e-06
+        nlookups = nqs * sel
+        if desc.spec.payload == Spec.KEY:
+            nlookups *= 2
+        bdbcost += nlookups * ( nentries * a + entrysize * b / 2 )
+
+        parsecost = nqs * coord_one
+        if desc.spec.payload != Spec.BINARY:
+            if desc.spec.payload == Spec.GRID:
+                negs = (math.ceil((fanin/density) ** 0.5) ** 2) - fanin
+                parsecost += nqs * sel * negs * coord_many
+            else:
+                parsecost += nqs * sel * fanin * coord_many
+
+            if desc.spec.payload == Spec.BOX:
+                boxcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        else:
+            parsecost = nqs * sel * 0.000016    
     else:
-        nptrs = desc.spec.outcoords == Spec.COORD_ONE and noutput or noutput / fanout
-        parsecost = fanin * incost * nqs * nptrs
-        extractcost = fanout * outcost * nqs * sel
-        matchcost = nptrs * nqs * 0.000001   # cost to execute join predicate        
-        qcost = parsecost + extractcost + matchcost
-    
-    return diskcost + qcost + dedupcost
+        #
+        a,b,c = 7.4e-09,5.68e-05,1.07e-04
+        nmatches = max(nqs * fanout / inputarea, nqs * sel)
+        idxcost = a * nentries  + b * nmatches + c
+
+
+        # bdb lookup costs
+        a,b =    1.95947313e-10,   3.94434154e-08
+        entrysize = 30
+        nlookups = nmatches
+        if desc.spec.payload == Spec.KEY:
+            nlookups += nmatches
+        bdbcost = nlookups * ( nentries * a + entrysize * b / 2 )
+
+        if desc.spec.payload != Spec.BINARY:
+            parsecost = 0.0
+            parsecost += nmatches * fanout * coord_many
+            if desc.spec.payload == Spec.GRID:
+                a,b,c = 4.54e-05,   3.78e-07,   2.67e-06
+                parsecost += (a / fanin + b / density + c) * fanin
+            else:
+                parsecost += nqs * sel * fanin * coord_many
+
+            if desc.spec.payload == Spec.BOX:
+                boxcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+            # if desc.spec.payload == Spec.BOX:
+            #     a,b,c = 0.10013271527592049, 0.00022428472407952143, 1.5845707477154047
+            #     baseline = a + b / (density ** c)
+            #     perc = min((fanin / density), inputarea) / float(inputarea)
+            #     extractcost = (baseline + runtime * perc) * sel
+        else:
+            parsecost = nmatches * 0.000016
+        
+    return idxcost, bdbcost, parsecost, boxcost
+            
 
 if __name__ == '__main__':
     strats = [Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),

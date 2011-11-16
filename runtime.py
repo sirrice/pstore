@@ -5,7 +5,7 @@ from strat import *
 
 log = logging.getLogger('runtime')
 logging.basicConfig()
-log.setLevel(logging.ERROR)
+log.setLevel(logging.DEBUG)
 
 PSTOREDIR = './_pstore'
 
@@ -48,6 +48,14 @@ class Runtime(object):
     def set_strategy(self, op, strat):
         self.cur_strats[op] = strat
         log.debug( "set\t%s\t%s" % (op, strat) )
+
+    def available_strats(self, op, run_id):
+        ret = []
+        strat = self.get_strategy(op, run_id)
+        if Mode.QUERY not in strat.modes():
+            ret.append(Strat.query())
+        ret.append(strat)
+        return ret
 
     def get_strategy(self, op, run_id = None):
         if run_id == None or op not in self.old_strats or run_id not in self.old_strats[op]:
@@ -157,6 +165,23 @@ class Runtime(object):
                       
         return ret
 
+
+        
+
+        
+    def get_query_pstore(self, op, run_id, strat):
+        if (op, run_id) in self.pstores:
+            pstore = self.pstores[(op, run_id)]
+            for desc in strat.descs():
+                if pstore.strat == desc:
+                    return pstore
+
+        # we should just be creating a QueryStore
+        if Mode.QUERY not in strat.modes():
+            raise RuntimeError, "trying to create query pstore :%s" % str(strat)
+        print "using QUERY: ", op
+        return PStoreQuery(op, run_id, '', Desc(Mode.QUERY, Spec.default(), True))
+            
 
     def get_pstore(self, op, run_id):
 

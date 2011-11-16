@@ -186,6 +186,7 @@ def create_workflow():
         w.add_static_input(en, 2, features)
         w.add_static_input(cm, 3, ftypes)
         w.add_static_input(pr, 3, ftypes)
+        
         w.run()
 
         Stats.instance().finish_exec()
@@ -211,10 +212,11 @@ def create_workflow():
         path = [ (gn, 0) , (cm, 2), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
         coords = [ (0, i)  for i in xrange(20)]
         qs.append( [ coords, runid, path, 'forward' ] )
-        
+
         #
         # backward queries
         #
+
         path = [(val, 0), (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0) ]
         for i in xrange(4):
             qs.append([ [(0, i)], runid, path, 'backward' ])
@@ -300,8 +302,8 @@ def create_workflow():
             return 'PTMAP_KEY_KEY_B'
 
         def pt3():
-            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.KEY, Spec.KEY), True)]),
-                       Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)]) ]
+            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)]) ]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
             return 'PTMAP_F_B'
@@ -347,8 +349,8 @@ def create_workflow():
             for op, runid in torm:
                 b = Runtime.instance().delete_pstore(op, runid)
 
-            return 'opt'
-        return [pt2]
+            return 'opt_%f_%f' % (disk, runcost)
+        return [noop, stat, query_opt, opt]#pt2]
         return [noop, stat, query_opt, ptr1, ptr2, ptr5, pt1, pt2, pt3]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
         # [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
         #  ptr4, ptr5, opt]
@@ -358,12 +360,17 @@ def create_workflow():
 def run_qs(w, qs, bmodel):
     ret = []
     for coords, runid, path, direction in qs:
-        start = time.time()
+        if direction == 'forward':
+            w.prepare_forward_path(runid, path)
+        elif direction == 'backward':
+            w.prepare_backward_path(runid, path)
         
+        start = time.time()        
         if direction == 'forward':
             res = w.forward_path(coords, runid, path)
         elif direction == 'backward':
             res = w.backward_path(coords, runid, path)
+
         nres = 0
         for coord in res:
             #print coord
@@ -409,6 +416,15 @@ if __name__ == '__main__':
         disksizes = [0.01, 0.1, 1, 10]
         runcost = 100
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
+
+        qs = map(list, get_qs())
+        for q in qs:
+            q[0] = len(q[0])
+        mp = ModelPredictor(eids, w, qs)
+        w.boptimize = True
+        w.mp = mp
+
+        
         for disk in disksizes:
             Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
@@ -421,10 +437,22 @@ if __name__ == '__main__':
                 for x in run_qs(w, get_qs(), bmodel):
                     print x
                 print
+        w.boptimize = False
+        w.mp = None
 
     def run_normal(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         runtype = set_strat()
         print runtype
+
+        eids = Stats.instance().get_matching_noops(runmode, ds.shape)
+
+        qs = map(list, get_qs())
+        for q in qs:
+            q[0] = len(q[0])
+        mp = ModelPredictor(eids, w, qs)
+        w.boptimize = True
+        w.mp = mp
+        
 
         if bmodel:
             run_model(ds, runmode, runtype)

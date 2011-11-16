@@ -180,6 +180,11 @@ class Strat(object):
                 ret.add(desc.mode)
         return list(ret)
 
+    def descs(self):
+        for bucket in self.buckets:
+            for desc in bucket.descs:
+                yield desc
+
     def copy(self):
         return Strat([bucket.copy() for bucket in self.buckets])
 

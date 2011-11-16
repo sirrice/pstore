@@ -84,29 +84,13 @@ class ModelPredictor(object):
             key = (op, arridx)
             weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
             weights.append(weight)
-
         if sum(weights) < 1.0:
             weights = [1.0 / op.wrapper.nargs] * op.wrapper.nargs
-        
+
         for arridx, weight in zip(xrange(op.wrapper.nargs), weights):
-            key = (op, arridx)
+            prov, disk, fcost, bcost, opcost = self.est_arr_cost(op, strat, runid, arridx)            
+
             fprob = self.fprobs.get(key,0)
-
-            stats = self.cache[key]
-
-            #print "stats",  op, strat, arridx, weight, stats
-            
-            fanin, area, density, oclustsize, nptrs, noutcells, outputsize, inputsize, opcost = stats
-
-            fqsize = self.fqsizes.get(op, 1)
-            bqsize = self.bqsizes.get(op, 1)
-            boxperc = area / inputsize
-
-            prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
-            disk = disk_model(strat, fanin, oclustsize, density, noutcells)
-            fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
-            bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
-
             qcost = (fcost * fprob) + (bcost * (1.0 - fprob))
 
             modes = strat.modes()
@@ -132,6 +116,23 @@ class ModelPredictor(object):
             return prob * opcosts, prob * provs, disks, prob * qcosts
         return 0, 0, disks, prob * qcosts
 
+            
+    def est_arr_cost(self, op, strat, runid, arridx):
+        key = (op, arridx)
+        stats = self.cache[key]
+        fanin, area, density, oclustsize, nptrs, noutcells, outputsize, inputsize, opcost = stats
+        #print "stats",  op, strat, arridx, weight, stats
+
+        fqsize = self.fqsizes.get(op, 1)
+        bqsize = self.bqsizes.get(op, 1)
+        boxperc = area / inputsize
+
+        prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
+        disk = disk_model(strat, fanin, oclustsize, density, noutcells)
+        fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
+        bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
+
+        return prov, disk, fcost, bcost, opcost
 
     def _proc_queries(self):
         for query in self.queries:

@@ -41,7 +41,9 @@ def setup_table(db):
         print e
         db.rollback()
 
-    create = "create table qcosts(sid int references stats(id), qsize int, backward bool, cost float, nres int)"
+    create = """create table qcosts(sid int references stats(id), qsize int, backward bool,
+                cost float, nres int,
+                parsecost float, keycost float, datacost float, extractcost float, nhits int)"""
     try:
         cur.execute(create)
         db.commit()
@@ -84,7 +86,7 @@ def get_prov(config):
     return prov
 
 
-def run_model(db, configs):
+def run_model(db, configs, qsizes):
     from models import *
     setup_table(db)
     cur = db.cursor()
@@ -102,20 +104,27 @@ def run_model(db, configs):
 
         # query the provenance store
         # vary query size
-        qsizes = [1, 10, 100, 1000, 2000]
-        qcosts = []
         for qsize in qsizes:
             fcost = forward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
             bcost = backward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
-            sql = "insert into qcosts values (?, ?, ?, ?, ?)"
-            cur.execute(sql, (sid, qsize, True, bcost, 0))
-            cur.execute(sql, (sid, qsize, False, fcost, 0))
+            desc = list(strat.descs())[0]
+            idxcost,bdbcost,parsecost,boxcost = backward_model_desc(desc, fanin, fanout, 1.0, noutput,
+                                                                    0.001, qsize, 1.0, 100*100)
+
+            params = [sid, qsize, True, bcost, 0]
+            params.extend([idxcost,bdbcost,parsecost,boxcost,0])
+            sql = "insert into qcosts values (%s)" % ','.join(['?']*len(params))
+            cur.execute(sql, tuple(params))
+
+            params = [sid, qsize, False, bcost, 0]
+            params.extend([0,0,0,0,0])
+            cur.execute(sql, tuple(params))
 
     db.commit()
     cur.close()
         
 
-def run_exp(db, configs):
+def run_exp(db, configs, qsizes):
     class BenchOp(Op):
         class Wrapper(object):
             def __init__(self, arr):
@@ -200,7 +209,6 @@ def run_exp(db, configs):
 
         # query the provenance store
         # vary query size
-        qsizes = [1000]
         qcosts = []
         for qsize in qsizes:
             q = []
@@ -215,8 +223,15 @@ def run_exp(db, configs):
                     nres += 1
                 cost = time.time() - start
 
-                sql = "insert into qcosts values (?, ?, ?, ?, ?)"
-                cur.execute(sql, (sid, qsize, backward, cost, nres))
+                params = [sid, qsize, backward, cost, nres]
+                params.extend([pstore.get_stat('parsecost', 0),
+                               pstore.get_stat('keycost', 0),
+                               pstore.get_stat('datacost', 0),
+                               pstore.get_stat('extractcost', 0),
+                               pstore.get_stat('nhits', 0) ])
+                
+                sql = """insert into qcosts values (%s)""" % (','.join(['?']*len(params)))
+                cur.execute(sql, tuple(params))
 
         db.commit()
     cur.close()
@@ -267,8 +282,8 @@ def stacked(db, strat, labels, fanin, noutput=10000):
     ys = {}
 
     for label in labels:
-        sql = """select fanout, avg(%s) from stats
-                 where fanin = ? and strat = ? and noutput = ?
+        sql = """select fanout, avg(%s) from stats, qcosts
+                 where stats.id = qcosts.sid and fanin = ? and strat = ? and noutput = ?
                 group by fanout order by fanout""" % label
         cur.execute(sql, (fanin, strat, noutput))
 #        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
@@ -289,7 +304,7 @@ def queries(db, fanin, noutput, strats, qsize=2000, backward=True):
     cur = db.cursor()
     xs = set()
     ys = {}
-    print "executing", fanin, noutput, qsize
+    print "executing", fanin, noutput, qsize, map(str,strats)
     strats = ','.join(map(lambda s: "'%s'" % s, map(str, strats)))
     sql = """select fanout, strat, backward, cost from stats, qcosts
              where qcosts.sid = stats.id and fanin = ? and noutput = ? and qsize = ? and backward = ?
@@ -300,8 +315,6 @@ def queries(db, fanin, noutput, strats, qsize=2000, backward=True):
 
     for row in cur.fetchall():
         fanout, strat, backward, cost = row
-        #if qsize >= 1000: qsize = '%dk' % (qsize / 1000)
-        #label = 'qsize%s_%s' % (qsize,backward and 'b' or 'f')
         label = '%s_%s' % (strat,backward and 'b' or 'f')            
         y = cost
         xs.add(int(fanout))
@@ -310,6 +323,32 @@ def queries(db, fanin, noutput, strats, qsize=2000, backward=True):
 
     title = "noutput=%d     fanin = %s  qsize = %s   backward = %s" % (noutput, fanin, qsize, backward)
     fname = "queries/%s_noutput%s_fanin%s_qsize%s" % (backward and 'b' or 'f', noutput, fanin, qsize)
+    plot(title, xs, ys, fname)
+    cur.close()
+
+
+
+def qstacked(db, strat, labels, fanin, noutput, qsize, backward=True):
+    cur = db.cursor()
+    xs = set()
+    ys = {}
+
+    for label in labels:
+        sql = """select fanout, avg(%s) from stats, qcosts
+                 where stats.id = qcosts.sid and fanin = ? and strat = ? and noutput = ? and
+                 qsize = ? and backward = ?
+                group by fanout order by fanout""" % label
+        cur.execute(sql, (fanin, strat, noutput, qsize, backward))
+#        cur.execute("select fanin, %s from stats where fanout = ? and strat = ? order by fanin" % label, (fanin, strat))
+        ys[label] = {}
+        for row in cur.fetchall():
+            fanout, y = row
+            xs.add(int(fanout))
+            ys[label][fanout] = float(y)
+        print ys[label], strat, label, fanin
+
+    title = "%s     fanin = %s   noutput = %d" % (strat, fanin, noutput)
+    fname = "qstack/%s_%s_%s_%s_%s" % ( backward and 'b' or 'f', strat, noutput, fanin, qsize)
     plot(title, xs, ys, fname)
     cur.close()
 
@@ -433,11 +472,23 @@ def stackviz(db, strats, fanins, noutputs):
                     #raise
 
 
-def queriesviz(db, fanins, noutputs, strats):
+def queriesstacked(db, fanins, noutputs, strats, qsizes):
+    labels = ('cost', 'parsecost', 'keycost', 'datacost', 'extractcost')
+    for strat in strats:
+        for fanin in fanins:
+            for noutput in noutputs:
+                for qsize in qsizes:
+                    try:
+                        qstacked(db, str(strat), labels, fanin, noutput, qsize)
+                    except Exception ,e:
+                        print e, strat, fanin
+    
+
+def queriesviz(db, fanins, noutputs, strats, qsizes):
     for fanin in fanins:
         for noutput in noutputs:
             for backward in (True, False):
-                for qsize in [1, 10, 100, 1000, 2000]:
+                for qsize in qsizes:
                     try:
                         queries(db, fanin, noutput, strats, qsize, backward=backward)
                     except Exception, e:
@@ -465,9 +516,8 @@ def bbox(coords):
 if __name__ == '__main__':
     import sqlite3
 
-#    db = sqlite3.connect('./_output/pstore_microbench_model.db')
-    db = sqlite3.connect('./_output/pstore_microbench.db')
-#    db = sqlite3.connect('./results/pstore_microbench.db.nov.14.2011')
+    
+
 
     strats = [
         #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.GRID), True),            
@@ -500,6 +550,7 @@ if __name__ == '__main__':
     fanouts = [1, 10, 100,1000]#10,25,50,100,150,200,250,1000]
     noutputs = (10000,)
     fanins = [1, 10, 100, 500 ]
+    qsizes = [1000]
     #fanins = [1, 10, 100, 1000, 9500, 10000]
 
 
@@ -514,20 +565,28 @@ if __name__ == '__main__':
                             continue
                         yield (strat, fanin, fanout, noutput)
         
-    if len(sys.argv) <= 1:
-        print "python pstore_micro.py [run | viz | stack | query | fit | all]"
+    if len(sys.argv) <= 2:
+        print "python pstore_micro.py [run | viz | stack | query | fit | all] [db path]"
         exit()
     mode = sys.argv[1]
+    dbname = sys.argv[2]
+#    db = sqlite3.connect('./_output/pstore_microbench.db')
+#    db = sqlite3.connect('./results/pstore_microbench.db.nov.14.2011')
+    db = sqlite3.connect(dbname)
+    
     if mode in ( 'run', 'all'):    
-        run_exp(db, gen_configs(strats, noutputs, fanins, fanouts))
+        run_exp(db, gen_configs(strats, noutputs, fanins, fanouts), qsizes)
     if mode in ( 'model', 'all'):
-        run_model(db, gen_configs(strats, noutputs, fanins, fanouts))
+        run_model(db, gen_configs(strats, noutputs, fanins, fanouts), qsizes)
+        
     if mode in ( 'viz', 'all'):            
         viz(db, fanins, noutputs)
     if mode in ( 'stack', 'all'):            
         stackviz(db, strats, fanins, noutputs)
     if mode in ( 'query', 'all'):
-        queriesviz(db, fanins, noutputs, strats)
+        queriesviz(db, fanins, noutputs, strats, qsizes)
+    if mode in ( 'qstack', 'all'):
+        queriesstacked(db, fanins, noutputs, strats, qsizes)
     if mode in ( 'fit', 'all' ):
         def fgen(f):
             def _f(xs, a,b):

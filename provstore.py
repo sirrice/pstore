@@ -13,7 +13,7 @@ from rtree import index
 
 plog = logging.getLogger('provstore')
 logging.basicConfig()
-plog.setLevel(logging.INFO)
+plog.setLevel(logging.ERROR)
 
 
 
@@ -75,7 +75,6 @@ def gengrid(coords):
     #encs = map(lambda coord: enc(coord, shape), np.argwhere(arr))
     return (box, map(tuple, np.argwhere(arr)))
 
-    
 
 def decgrid(box, negs):
     global __grid__, __gcells__    
@@ -88,6 +87,10 @@ def decgrid(box, negs):
     arr[:,:] = True
     arr[zip(*negs)] = False
     return map(lambda coord: (coord[0]+box[0][0], coord[1]+box[0][1]), np.argwhere(arr))
+
+
+
+
 
         
 class BinaryRTree(index.Index):
@@ -663,11 +666,9 @@ class DiskStore(IPstore):
         
 
         extractcost, parsecost, nhits = 0.0, 0.0, 0.0
+        keycost = 0.0
+        datacost = 0.0
 
-
-        # pred
-        # matches
-        # extract
         if backward:  # backward query
             if Spec.BOX == self.spec.outcoords:
                 pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
@@ -685,16 +686,26 @@ class DiskStore(IPstore):
                 getkey = lambda item: self.bdb[item.object]
             extract = lambda obj: self.extract_incells(obj, arridx)
 
-            
+
+            niter = 0
             for l in left:
+                niter += 1
                 l = tuple(l)
+
                 items = self.outidx.get_pt(l)
                 for item in items:
+                    start = time.time()
                     key = getkey(item)
+                    keycost += time.time() - start
+
+                    start = time.time()
                     r = (key, self.bdb[key])
+                    datacost += time.time() - start
+
+                    
                     start = time.time()
                     coords = pred(r)
-                    parsecost += time.time()
+                    parsecost += time.time() - start
                     b = matches(l, coords)
                     nhits += 1
                     if b:
@@ -704,8 +715,15 @@ class DiskStore(IPstore):
                         for coord in e:
                             yield coord
             self.inc_stat('parsecost', parsecost)
+            self.inc_stat('keycost', keycost)
+            self.inc_stat('datacost', datacost)
             self.inc_stat('extractcost', extractcost)
             self.inc_stat('nhits', nhits)
+
+            plog.debug( "keycost  \t%f", keycost)
+            plog.debug( "parsecost\t%f", parsecost)
+            plog.debug( "extract  \t%f", extractcost)
+            plog.debug( "nhits    \t%f\t%f", nhits, niter)
 
         else:  # forward query
             if Spec.BOX == self.spec.payload:
@@ -745,24 +763,24 @@ class DiskStore(IPstore):
     def hash_join(self, left, arridx):
         datacost = 0.0
         extractcost = 0.0
-        sercost = 0.0
+        keycost = 0.0
         niter = 1.0
-        nfound = 1.0
+        nhits = 1.0
         total = 0.0
         tstart = time.time()
         for l in left:
             niter += 1
             start = time.time()
-            enc = (self.enc_out(l),)
-            key = StringIO()
-            self._serialize(enc, key, self.spec.outcoords)
-            key = key.getvalue()
-            sercost += time.time() - start
+            enc = self.enc_out(l)
+            key = struct.pack('I', enc)
+            keycost += time.time() - start
             if key not in self.bdb: continue
-            nfound += 1
+            nhits += 1
+
             start = time.time()
             payload = self.bdb[key]
             datacost += time.time() - start
+            
             if payload is not None:
                 start = time.time()
                 e = self.extract_incells((key, payload), arridx)
@@ -770,9 +788,15 @@ class DiskStore(IPstore):
                 for coord in e:
                     yield coord
                     
-        plog.debug( "datacost:    %f\t%f", datacost, datacost / nfound )
-        plog.debug( "extractcost: %f\t%f", extractcost, extractcost / nfound )
-        plog.debug( "sercost:     %f\t%f", sercost, sercost / niter )
+        self.inc_stat('parsecost', 0)
+        self.inc_stat('keycost', keycost)
+        self.inc_stat('datacost', datacost)
+        self.inc_stat('extractcost', extractcost)
+        self.inc_stat('nhits', nhits)
+                    
+        plog.debug( "datacost:    %f\t%f", datacost, datacost / nhits )
+        plog.debug( "extractcost: %f\t%f", extractcost, extractcost / nhits )
+        plog.debug( "keycost:     %f\t%f", keycost, keycost / niter )
 
 
     def open(self, new=False):
@@ -1014,6 +1038,9 @@ class PStore3(DiskStore):
         self.outboxes = []
         self.incache = [[] for n in xrange(self.nargs)]
         self.incounts = [[] for n in xrange(self.nargs)]
+        if self.outbuf == None:
+            self.outbuf = None
+            self.inbufs = [None] * self.nargs
         
 
 
@@ -1740,74 +1767,76 @@ class CompositePStore(IPstore):
 
 
 if __name__ == '__main__':
-    coord = 'aaaaaaaaaaaa'
+    # coord = 'aaaaaaaaaaaa'
 
-    def run(npoints):
-        idx = SpatialIndex('/tmp/test')
-        idx.open(True)
-        start = time.time()
-        for i in xrange(npoints):
-            idx.set((i,i,i+1,i+1), coord)
-        end1 = time.time()
-        idx.close()
-        end2 = time.time()
-        return end1-start, end2-start
+    # def run(npoints):
+    #     idx = SpatialIndex('/tmp/test')
+    #     idx.open(True)
+    #     start = time.time()
+    #     for i in xrange(npoints):
+    #         idx.set((i,i,i+1,i+1), coord)
+    #     end1 = time.time()
+    #     idx.close()
+    #     end2 = time.time()
+    #     return end1-start, end2-start
 
-    def bdb(npoints):
-        db = bsddb.hashopen('/tmp/test.db', 'n')
-        start = time.time()
-        for i in xrange(npoints):
-            db[str(i)] = coord
-        end1 = time.time()
-        db.close()
-        end2 = time.time()
-        return end1-start, end2-start
+    # def bdb(npoints):
+    #     db = bsddb.hashopen('/tmp/test.db', 'n')
+    #     start = time.time()
+    #     for i in xrange(npoints):
+    #         db[str(i)] = coord
+    #     end1 = time.time()
+    #     db.close()
+    #     end2 = time.time()
+    #     return end1-start, end2-start
 
-    def gen(bsize):
-        for i in xrange(10000):
-            x,y = random.randint(0, 99), random.randint(0, 99)
-            yield (i, (x,y,x+bsize, y+bsize), 'b:%d' % i)
-    from rtree import Rtree
-    for nboxes in (1, 100, 1000):
-        for bsize in (1, 5, 6, 10):
-            idx = Rtree(gen(bsize))
-            nres = 0
-            start = time.time()
-            for i in xrange(1000):
-                pt = (random.randint(0, 99),random.randint(0, 99))
-                pt = (-1,-1)
-                for x in idx.intersection(pt, objects=True):
-                    nres += 1
-            cost = time.time() - start
-            print '%d\t%d\t%d\t' % (nboxes, bsize, nres/1000.0), cost / 1000.0
-    exit()
+    # def gen(bsize):
+    #     for i in xrange(10000):
+    #         x,y = random.randint(0, 99), random.randint(0, 99)
+    #         yield (i, (x,y,x+bsize, y+bsize), 'b:%d' % i)
+
+    # from rtree import Rtree
+    # for nboxes in (1, 100, 1000):
+    #     for bsize in (1, 5, 6, 10):
+    #         idx = Rtree(gen(bsize))
+    #         nres = 0
+    #         start = time.time()
+    #         for i in xrange(1000):
+    #             pt = (random.randint(0, 10),random.randint(0, 10))
+    #             for x in idx.intersection(pt, objects=True):
+    #                 nres += 1
+    #         cost = time.time() - start
+    #         print '%d\t%d\t%d\t' % (nboxes, bsize, nres/1000.0), cost / 1000.0
+    # exit()
 
 
-    for i in (10, 100, 1000, 10000, 100000):
-        cost1, cost2 = run(i)
-        datsize = os.path.getsize('/tmp/test_rtree.dat')
-        idxsize = os.path.getsize('/tmp/test_rtree.idx')
-        bdbsize = os.path.getsize('/tmp/test_rtree.bdb')
-        print '%d\t%f\t%f\t%f\t%f\t%f\t%f' % (i, cost2 / i, cost1, cost2,
-                                              datsize/1048576.0, idxsize / 1048576.0, bdbsize/1048576.0)
-    exit()
+    # for i in (10, 100, 1000, 10000, 100000):
+    #     cost1, cost2 = run(i)
+    #     datsize = os.path.getsize('/tmp/test_rtree.dat')
+    #     idxsize = os.path.getsize('/tmp/test_rtree.idx')
+    #     bdbsize = os.path.getsize('/tmp/test_rtree.bdb')
+    #     print '%d\t%f\t%f\t%f\t%f\t%f\t%f' % (i, cost2 / i, cost1, cost2,
+    #                                           datsize/1048576.0, idxsize / 1048576.0, bdbsize/1048576.0)
+    # exit()
 
-    idx.set((0,0,1,1), '0')
-    idx.close()
+    # idx.set((0,0,1,1), '0')
+    # idx.close()
 
     
-    idx.open(False)
-    print map(str, idx.get_pt((0,0)))
-    idx.close()
-    idx.open(False)
-    print map(str, idx.get_pt((0,0)))
-    idx.close()
+    # idx.open(False)
+    # print map(str, idx.get_pt((0,0)))
+    # idx.close()
+    # idx.open(False)
+    # print map(str, idx.get_pt((0,0)))
+    # idx.close()
 
-    idx.open(True)
-    print map(str, idx.get_pt((0,0)))
-    idx.close()
-    exit()
+    # idx.open(True)
+    # print map(str, idx.get_pt((0,0)))
+    # idx.close()
+    # exit()
 
+
+    all_coords = [ (i,i) for i in xrange(1000) ]
     def ser(pstore, coords, spec):
         buf = StringIO()        
         if spec == Spec.BOX:

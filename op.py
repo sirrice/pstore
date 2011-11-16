@@ -143,6 +143,12 @@ class Workflow(object):
         self.par2child = {}   # [par][child] -> list(argidx)
         self.child2par = {}   # [child] -> list(par)
 
+        # flag for if we want to optimize query execution
+        # set to True and create a model prediction object to optimize
+        self.boptimize = False
+        self.mp = None
+        self.beststrats = None
+
 
     def serialize(self):
         arr = []
@@ -341,47 +347,88 @@ class Workflow(object):
 
         wlog.info("workflow #%d done!", run_id)
 
+    def best_query_strats(self, run_id, path):
+        
+        return beststrats
+        
+    def prepare_forward_path(self, run_id, path):
+        beststrats = {}                    
+        if self.boptimize:
+            for op, arridx in path:
+                beststrat = None
+                bestcost = None
+                for strat in Runtime.instance().available_strats(op, run_id):
+                    _,_,fcost,_,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx)
+                    if beststrat == None or fcost < bestcost:
+                        beststrat = strat
+                        bestcost = fcost
+                beststrats[(op,arridx)] = beststrat
+        self.beststrats = beststrats
+
     def forward_path(self, incoords, run_id, path):
         """
         Compile query into a query plan.
         Return: query plan
         """
+      
         start = time.time()
         child = Scan(incoords)
         for op, arridx in path:
             start = time.time()
             wop = op.wrapper
             shape = wop.get_output_shape(run_id)
-            pstore = Runtime.instance().get_pstore(op, run_id) 
+
+            if self.boptimize:
+                pstore = Runtime.instance().get_query_pstore(op, run_id, self.beststrats[(op,arridx)])
+            else:
+                pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
             child = pstore.join(child, arridx, backward=False)
             
             child = DedupQuery(child, shape)
-            wlog.debug( 'Fpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
+            wlog.debug( 'Fpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
 
         end = time.time()
         #print "forward query cost", (end-start)
         return DedupQuery(child, shape)
         return NBDedupQuery(q)
 
-
+    def prepare_backward_path(self, run_id, path):
+        # calculate the best path on op by op basis
+        beststrats = {}            
+        if self.boptimize:
+            for op, arridx in path:
+                beststrat = None
+                bestcost = None
+                for strat in Runtime.instance().available_strats(op, run_id):
+                    _,_,_,bcost,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx)
+                    if beststrat == None or bcost < bestcost:
+                        beststrat = strat
+                        bestcost = bcost
+                beststrats[(op,arridx)] = beststrat
+        self.beststrats = beststrats
 
     def backward_path(self, outcoords, run_id, path):
         """
         return: query plan
         """
+
         child = Scan(outcoords)
         for op, arridx in path:
             wop = op.wrapper
             shape = wop.get_input_shape(run_id, arridx)
-            pstore = Runtime.instance().get_pstore(op, run_id)
+
+            if self.boptimize:
+                pstore = Runtime.instance().get_query_pstore(op, run_id, self.beststrats[(op,arridx)])
+            else:
+                pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
 
             child = pstore.join(child, arridx, backward=True)
             try:
                 start = time.time()
                 child = DedupQuery(child, shape)
-                wlog.debug( 'Bpathdedup\t%f\t%s\t%d', time.time()-start, op, len(child) )
+                wlog.debug( 'Bpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
             except:
                 wlog.error( 'error running back\t%s',  op )
                 raise
