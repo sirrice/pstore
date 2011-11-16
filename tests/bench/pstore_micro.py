@@ -57,13 +57,17 @@ def setup_table(db):
 
 def get_prov(config):
     strat, fanin, fanout, noutput = config    
-    side = int(math.ceil(math.pow(float(fanin), 0.5))) 
+    side = int(math.ceil(math.pow(float(fanin), 0.5)))
+    oside = int(math.ceil(fanout ** 0.5))
     prov = []
     incoords = []
     outcoords = []
     fanin_n = 0
+
+    optx, opty = randint(0, 99 - oside), randint(0, 99-oside)  # centroid of output coords
     for n in xrange(noutput):
-        outcoords.append((n / 100, n % 100))
+        #outcoords.append((n / 100, n % 100))
+        outcoords.append( (randint(0,oside) + optx, randint(0,side) + opty ) )
         if len(outcoords) >= fanout:
             ptx, pty = randint(0, 99-side), randint(0, 99-side)
             for i in xrange(fanin):
@@ -73,6 +77,7 @@ def get_prov(config):
             prov.append((outcoords, incoords))
             outcoords = []
             incoords = []
+            optx, opty = randint(0, 99 - oside), randint(0, 99-oside) 
     if len(outcoords) > 0:
         ptx, pty = randint(0, 99-side), randint(0, 99-side)
         for i in xrange(fanin):
@@ -108,11 +113,11 @@ def run_model(db, configs, qsizes):
             fcost = forward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
             bcost = backward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
             desc = list(strat.descs())[0]
-            idxcost,bdbcost,parsecost,boxcost = backward_model_desc(desc, fanin, fanout, 1.0, noutput,
-                                                                    0.001, qsize, 1.0, 100*100)
-
+            idxcost, keycost, parsecost, extractcost = backward_model_desc(desc, fanin, fanout, 1.0, noutput,
+                                                                           0.001, qsize, 1.0, 100*100)
             params = [sid, qsize, True, bcost, 0]
-            params.extend([idxcost,bdbcost,parsecost,boxcost,0])
+            # parse, key, data, extract
+            params.extend([parsecost, keycost, idxcost, extractcost, 1000])
             sql = "insert into qcosts values (%s)" % ','.join(['?']*len(params))
             cur.execute(sql, tuple(params))
 
@@ -376,9 +381,9 @@ def plot(title, xs, ys, fname, path = '_figs/microperstrat'):
     #     ymin = ymin / 10
     #     mult = 100
     # else:
-    yscale = 'log'
+    yscale = 'linear'
     mult = 1.5
-    #ymin = 0
+    ymin = 0
 
 
 
@@ -473,7 +478,7 @@ def stackviz(db, strats, fanins, noutputs):
 
 
 def queriesstacked(db, fanins, noutputs, strats, qsizes):
-    labels = ('cost', 'parsecost', 'keycost', 'datacost', 'extractcost')
+    labels = ('cost', 'parsecost', 'keycost', 'datacost', 'extractcost')#, 'nhits')
     for strat in strats:
         for fanin in fanins:
             for noutput in noutputs:
@@ -531,7 +536,7 @@ if __name__ == '__main__':
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
         
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
         #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
@@ -548,8 +553,10 @@ if __name__ == '__main__':
     noutputs = (10000)
     fanins = [1,10,25,50,100]
     fanouts = [1, 10, 100,1000]#10,25,50,100,150,200,250,1000]
-    noutputs = (10000,)
+    noutputs = (100000,)
     fanins = [1, 10, 100, 500 ]
+    fanins = [10]
+    fanouts = [1, 50, 100,1000]
     qsizes = [1000]
     #fanins = [1, 10, 100, 1000, 9500, 10000]
 

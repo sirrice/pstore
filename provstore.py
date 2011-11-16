@@ -13,7 +13,7 @@ from rtree import index
 
 plog = logging.getLogger('provstore')
 logging.basicConfig()
-plog.setLevel(logging.ERROR)
+plog.setLevel(logging.DEBUG)
 
 
 
@@ -668,6 +668,7 @@ class DiskStore(IPstore):
         extractcost, parsecost, nhits = 0.0, 0.0, 0.0
         keycost = 0.0
         datacost = 0.0
+        itemcost = 0.0
 
         if backward:  # backward query
             if Spec.BOX == self.spec.outcoords:
@@ -691,6 +692,11 @@ class DiskStore(IPstore):
             for l in left:
                 niter += 1
                 l = tuple(l)
+                start = time.time()
+                items = self.outidx.get_pt(l)
+                for item in items:
+                    item.object
+                itemcost += time.time() - start
 
                 items = self.outidx.get_pt(l)
                 for item in items:
@@ -700,13 +706,14 @@ class DiskStore(IPstore):
 
                     start = time.time()
                     r = (key, self.bdb[key])
-                    datacost += time.time() - start
+                    datacost += time.time() - start 
 
                     
                     start = time.time()
                     coords = pred(r)
-                    parsecost += time.time() - start
                     b = matches(l, coords)
+                    parsecost += time.time() - start                    
+
                     nhits += 1
                     if b:
                         start = time.time()
@@ -721,6 +728,7 @@ class DiskStore(IPstore):
             self.inc_stat('nhits', nhits)
 
             plog.debug( "keycost  \t%f", keycost)
+            plog.debug( "itemcost  \t%f", itemcost) 
             plog.debug( "parsecost\t%f", parsecost)
             plog.debug( "extract  \t%f", extractcost)
             plog.debug( "nhits    \t%f\t%f", nhits, niter)
@@ -1176,14 +1184,22 @@ class PStore3(DiskStore):
                 n = struct.pack('I', oldn + newn)
                 return ''.join([n, old[4:], new[4:]])
             elif mode == Spec.GRID:
-                oldtmp = self._parse(old, mode)
-                newtmp = self._parse(new, mode)
+                oldtmp = self._parse(StringIO(old), mode)
+                newtmp = self._parse(StringIO(new), mode)
                 oldbox, oldencs = oldtmp[:2], oldtmp[3:]
                 newbox, newencs = newtmp[:2], newtmp[3:]
+                oldbox = [self.dec_in(o, arridx) for o in oldbox]
+                newbox = [self.dec_in(o, arridx) for o in newbox]
                 coords = []
                 coords.extend(decgrid(oldbox, map(lambda c: self.dec_in(c, arridx), oldencs)))
                 coords.extend(decgrid(newbox, map(lambda c: self.dec_in(c, arridx), newencs)))
-                return gengrid(coords)
+                grid = gengrid(coords)
+                l = []
+                l.extend( grid[0] )
+                l.append( (0, len(grid[1]) ) )
+                l.extend( grid[1] )
+                return struct.pack('%dI' % len(l), *[self.enc_in(c, arridx) for c in l])
+                          
             elif mode == Spec.BOX:
                 raise RuntimeError
             elif mode == Spec.COORD_ONE:

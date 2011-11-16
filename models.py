@@ -362,69 +362,102 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
     if nentries == None:
         nentries = noutput / fanout
 
-        
-    boxcost = parsecost = bdbcost = 0
+    spec = desc.spec
+    keycost, parsecost, extractcost, idxcost = 0,0,0,0
     if not desc.backward:
         return 1000000,0,0,0
 
+    entrysize = 0
+    if spec.outcoords == Spec.COORD_ONE:
+        entrysize += 4
+    else:
+        entrysize += 4 + fanout * 4
+    if spec.payload == Spec.BOX:
+        entrysize += 8
+    elif spec.payload == Spec.BINARY:
+        entrysize += 4 + 8
+    else:
+        entrysize += fanin * 4
+        if spec.payload == Spec.KEY:
+            entrysize += 18
+    a,b =    1.95947313e-10,   3.94434154e-08            
+    perbdbcost = (nentries * 2 * a + entrysize * b )
+
+    
+    
     if desc.spec.outcoords == Spec.COORD_ONE:
-        idxcost = 0
+        keycost = nqs * coord_one
+        datacost = nqs * perbdbcost
+        nmatches = nqs * sel
 
-        a,b =    1.95947313e-10,   3.94434154e-08
-        entrysize = 30
-        bdbcost = nqs * (1.0 - sel) * 4e-06
-        nlookups = nqs * sel
-        if desc.spec.payload == Spec.KEY:
-            nlookups *= 2
-        bdbcost += nlookups * ( nentries * a + entrysize * b / 2 )
-
-        parsecost = nqs * coord_one
-        if desc.spec.payload != Spec.BINARY:
-            if desc.spec.payload == Spec.GRID:
-                negs = (math.ceil((fanin/density) ** 0.5) ** 2) - fanin
-                parsecost += nqs * sel * negs * coord_many
-            else:
-                parsecost += nqs * sel * fanin * coord_many
-
-            if desc.spec.payload == Spec.BOX:
-                boxcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        # value parsing costs
+        extractcost = 0.0
+        if spec.payload == Spec.COORD_MANY:
+            a,b = 7.08e-07,   3.17e-07
+            extractcost += nmatches * (a / fanin + b) * fanin
+        elif spec.payload == Spec.KEY:
+            extractcost += nmatches * perbdbcost
+            a,b = 7.08e-07,   3.17e-07
+            extractcost += nmatches * (a / fanin + b) * fanin
+        elif spec.payload == Spec.GRID:
+            a,b = 5.75881062e-06 ,  2.21225251e-04
+            extractcost += (a * fanin + b) * nmatches
+        elif spec.payload == Spec.BOX:
+            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        elif spec.payload == Spec.BINARY:
+            extractcost += nmatches * 0.000016
         else:
-            parsecost = nqs * sel * 0.000016    
+            print spec.payload
+            raise RuntimeError
+
     else:
         #
         a,b,c = 7.4e-09,5.68e-05,1.07e-04
-        nmatches = max(nqs * fanout / inputarea, nqs * sel)
+        nmatches = max(nqs * noutput / inputarea, nqs * sel)
         idxcost = a * nentries  + b * nmatches + c
 
+        nmatches = nqs * sel
 
-        # bdb lookup costs
+        # extracting the key from index and the serialized value (2 lookups)
+        nlookups = nmatches + nmatches
         a,b =    1.95947313e-10,   3.94434154e-08
-        entrysize = 30
-        nlookups = nmatches
-        if desc.spec.payload == Spec.KEY:
-            nlookups += nmatches
-        bdbcost = nlookups * ( nentries * a + entrysize * b / 2 )
+        perbdbcost = (nentries * 2 * a + entrysize * b )
+        keycost = nlookups * perbdbcost
 
-        if desc.spec.payload != Spec.BINARY:
-            parsecost = 0.0
-            parsecost += nmatches * fanout * coord_many
-            if desc.spec.payload == Spec.GRID:
-                a,b,c = 4.54e-05,   3.78e-07,   2.67e-06
-                parsecost += (a / fanin + b / density + c) * fanin
-            else:
-                parsecost += nqs * sel * fanin * coord_many
+        # key parsing costs
+        parsecost = 0.0
+        if spec.outcoords == Spec.COORD_MANY:
+            a,b = 7.08e-07,   3.17e-07
+            parsecost += nmatches * (a / fanout + b) * fanout
+        else:
+            raise
 
-            if desc.spec.payload == Spec.BOX:
-                boxcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        # value parsing costs
+        extractcost = 0.0
+        if spec.payload == Spec.COORD_MANY:
+            a,b = 7.08e-07,   3.17e-07
+            extractcost += nmatches * (a / fanin + b) * fanin
+        elif spec.payload == Spec.KEY:
+            extractcost += nmatches * perbdbcost
+            a,b = 7.08e-07,   3.17e-07
+            extractcost += nmatches * (a / fanin + b) * fanin
+        elif spec.payload == Spec.GRID:
+            a,b = 5.75881062e-06 ,  2.21225251e-04
+            extractcost += (a * fanin + b) * nmatches
+        elif spec.payload == Spec.BOX:
+            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+        elif spec.payload == Spec.BINARY:
+            extractcost += nmatches * 0.000016
+        else:
+            raise RuntimeError
+
             # if desc.spec.payload == Spec.BOX:
             #     a,b,c = 0.10013271527592049, 0.00022428472407952143, 1.5845707477154047
             #     baseline = a + b / (density ** c)
             #     perc = min((fanin / density), inputarea) / float(inputarea)
             #     extractcost = (baseline + runtime * perc) * sel
-        else:
-            parsecost = nmatches * 0.000016
         
-    return idxcost, bdbcost, parsecost, boxcost
+    return idxcost, keycost, parsecost, extractcost#bdbcost, parsecost, boxcost
             
 
 if __name__ == '__main__':
