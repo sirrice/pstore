@@ -398,11 +398,11 @@ class Workflow(object):
         return NBDedupQuery(q)
 
     def pick_backward_strat(self, qsize, op, arridx, run_id):
-        print "\tbackoptimizer", op, qsize
         beststrat = None
         bestcost = None
         for strat in Runtime.instance().available_strats(op, run_id):
             _,_,_,bcost,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx, bqsize=qsize)
+            wlog.debug( 'PrepBQ\t%s\t%d\t%s\t%d\t%f', op, arridx, strat, qsize, bcost)
             if beststrat == None or bcost < bestcost:
                 beststrat = strat
                 bestcost = bcost
@@ -414,6 +414,7 @@ class Workflow(object):
         """
         return: query plan
         """
+        wlog.debug( 'New Query\t%s', '\t'.join(map(lambda s: s.strip(), map(str, map(lambda p: p[0], path)))))
         optcost = 0.0
         child = Scan(outcoords)
         for op, arridx in path:

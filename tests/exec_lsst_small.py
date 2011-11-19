@@ -60,7 +60,7 @@ if __name__ == '__main__':
     w.connect(conv, clus, 0)
 
     w.default_strategy()
-    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
+    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
     print strat
     Runtime.instance().set_strategy(clus, strat)
 

@@ -443,7 +443,9 @@ class DiskStore(IPstore):
         self.outidx = SpatialIndex(fname)
 
     def get_iter(self):
-        return (x for x in self.bdb.iteritems() if not x[0].startswith("key:") and not x[0].startswith('b:'))
+        badprefixes = ('key:', 'b:', 'ref:')
+        return (x for x in self.bdb.iteritems()
+                if not x[0].startswith("key:") and not x[0].startswith('b:') and not x[0].startswith('ref:'))
 
     def disk(self):
         try:
@@ -705,14 +707,6 @@ class DiskStore(IPstore):
             for l in left:
                 niter += 1
                 l = tuple(l)
-                start = time.time()
-                if self.spec.outcoords == Spec.BOX:
-                    items = self.outidx.get_box(l)
-                else:
-                    items = self.outidx.get_pt(l)
-                for item in items:
-                    pass
-                itemcost += time.time() - start
                 
                 if self.spec.outcoords == Spec.BOX:
                     items = self.outidx.get_box(l)
@@ -750,7 +744,6 @@ class DiskStore(IPstore):
 
 
             plog.debug( "keycost  \t%f", keycost)
-            plog.debug( "itemcost  \t%f", itemcost) 
             plog.debug( "parsecost\t%f", parsecost)
             plog.debug( "extract  \t%f", extractcost)
             plog.debug( "nhits    \t%f\t%f", nhits, niter)
@@ -1080,7 +1073,7 @@ class PStore3(DiskStore):
     def merge_strings(self, *strs):
         size = sum(map(len, strs))
         if self.mergebuf == None or size > len(self.mergebuf):
-            print "allocating new merge buffer", (size * 2)
+            #print "allocating new merge buffer", (size * 2)
             self.mergebuf = create_string_buffer(size * 2)
         fmt = ''.join(('%ds' % len(s) for s in strs))
         struct.pack_into(fmt, self.mergebuf, 0, *strs)
@@ -1195,9 +1188,8 @@ class PStore3(DiskStore):
                 h = str(hash(ret) % 4294967296).rjust(10, '_')
                 key = 'key:%s' % h
                 refkey = 'ref:%s' % h
-                if key in self.bdb:
-                    self.bdb[refkey] = str(int(self.bdb[refkey])+1)
-                else:
+
+                if key not in self.bdb:
                     self.bdb[key] = ret
                     self.bdb[refkey] = '0'
                 ret = '%s%s' % (KEYLEN, key)
@@ -1222,27 +1214,28 @@ class PStore3(DiskStore):
                 h = str(hash(newval) % 4294967296).rjust(10, '_')
                 key = 'key:%s' % h
                 refkey = 'ref:%s' % h
-                if key in self.bdb:
-                    self.bdb[refkey] = str(int(self.bdb[refkey])+1)                    
-                else:
+                if key not in self.bdb:
                     self.bdb[key] = newval
-                    self.bdb[ref] = '0'
+                    self.bdb[refkey] = '0'
 
+                # we know we are removing references now
                 # update ref counts and garbage collect
-                oldref = 'ref:%s' % oldkey
-                newref = 'ref:%s' % newkey
-                oldrefcount = int(self.bdb[oldref])
-                newrefcount = int(self.bdb[newref])
+                oldref = 'ref:%s' % oldkey[4:]
+                oldrefcount = int(self.bdb[oldref])            
                 if oldrefcount <= 1:
                     del self.bdb[oldkey]
                     del self.bdb[oldref]
                 else:
                     self.bdb[oldref] = str(oldrefcount - 1)
-                if newrefcount <= 1:
+
+                newref = 'ref:%s' % newkey[4:]
+                newrefcount = int(self.bdb[newref])
+                if newrefcount <= 0:
                     del self.bdb[newkey]
                     del self.bdb[newref]
                 else:
                     self.bdb[newref] = str(newrefcount - 1)
+
 
                 return '%s%s' % (KEYLEN, key)
 
@@ -1308,6 +1301,21 @@ class PStore3(DiskStore):
                 return ret
             elif mode == Spec.COORD_ONE:
                 raise RuntimeError
+
+        def add_ptr(key, vals):
+            """
+            @param vals: array of bytes
+            """
+            start = time.time()
+            if self.spec.payload == Spec.KEY:
+                for val in vals:
+                    # update the reference
+                    refkey = 'ref:%s' % val[8:]
+                    self.bdb[refkey] = str(int(self.bdb[refkey])+1)
+
+            self.bdb[key] = ''.join(vals)
+            return time.time()-start                        
+
                 
         bdbcost = 0.0
         idxcost = 0.0
@@ -1325,16 +1333,24 @@ class PStore3(DiskStore):
                 ba, offset = foo(buf, count, offset, self.spec.payload)
                 valoffsets[idx] = offset
                 vals.append(ba)
-            val = ''.join(vals)
+                
 
+            # presume that we are creating references to each of the values
+            # we will remove referencs later
+            if self.spec.payload == Spec.KEY:
+                nrefs = self.spec.outcoords == Spec.COORD_ONE and ocount or 1
+                for val in vals:
+                    refkey = 'ref:%s' % val[8:]
+                    self.bdb[refkey] = str(int(self.bdb[refkey])+nrefs)
+
+            nkeysremoved = 0
             if self.spec.outcoords == Spec.COORD_ONE:
+                
                 for i in xrange(ocount):
                     key, keyoffset = foo(self.outbuf, 1, keyoffset, self.spec.outcoords)
                     dec, = struct.unpack('I', key)
                     if key not in self.bdb:
-                        start = time.time()                        
-                        self.bdb[key] = val
-                        bdbcost += time.time()-start                        
+                        bdbcost += add_ptr(key, vals)
                     else:
                         start = time.time()
                         oldvals = segment_serinputs(self.bdb[key])
@@ -1343,13 +1359,13 @@ class PStore3(DiskStore):
                         
                         for arridx, (oldval, curval) in enumerate(zip(oldvals, curvals)):
                             newvals.append(merge_serialized(oldval, curval, arridx))
-                            
                         mergecost += time.time() - start
 
-                        start = time.time()
-                        self.bdb[key] = ''.join(newvals)
-                        bdbcost += time.time()-start
-                    
+                        bdbcost += add_ptr(key, newvals)
+
+                        if self.spec.payload == Spec.KEY:
+                            nkeysremoved += 1
+
 
             else:
                 key, keyoffset = foo(self.outbuf, ocount, keyoffset, self.spec.outcoords)
@@ -1357,8 +1373,10 @@ class PStore3(DiskStore):
                     idxkey = 'b:%d' % self.nbdbitems
                     start = time.time()
                     self.bdb[idxkey] = key                
-                    self.bdb[key] = val
                     bdbcost += time.time()-start
+
+                    bdbcost += add_ptr(key, vals)
+
                     start = time.time()
                     self.outidx.set(obox, self.nbdbitems)
                     idxcost += time.time()-start
@@ -1372,9 +1390,10 @@ class PStore3(DiskStore):
                         curvals.append(merge_serialized(oldval, curval, arridx))
                     mergecost += time.time() - start
 
-                    start = time.time()
-                    self.bdb[key] = ''.join(curvals)
-                    bdbcost += time.time()-start
+                    bdbcost += add_ptr(key, curvals)
+                    nkeysremoved += 1
+
+
 
         
         self.inc_stat('bdbcost', bdbcost)

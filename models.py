@@ -312,7 +312,7 @@ def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
         return backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea)
     if desc.mode in (Mode.STAT, Mode.NOOP):
-        return 0.0
+        return 0.0, 0,0,0
     if desc.mode == Mode.PT_MAPFUNC:
         return 1000000000, 0,0,0
 
@@ -336,14 +336,19 @@ def box_model(density, fanin, inputarea, runtime, nptrs):
     return cost
 
 def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-    scost = 10
+    scost = None
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
             cost = sum(backward_model_desc(desc, fanin, fanout, density, noutput,
                                            runtime, nqs, sel, inputarea=inputarea))
             bcost += cost
-        scost = min(scost, bcost)
+        if scost is None:
+            scost = bcost
+        else:
+            scost = min(scost, bcost)
+    if scost == None:
+        scost = 10000000
     return scost
 
 
@@ -388,8 +393,6 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
             entrysize += 18
     a,b =    1.95947313e-10,   3.94434154e-08            
     perbdbcost = (nentries * 2 * a + entrysize * b )
-    if debug or True:
-        print "\tperbdbcost", desc, nentries, entrysize, perbdbcost, fanin, fanout
 
     
     

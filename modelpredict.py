@@ -72,6 +72,7 @@ class ModelPredictor(object):
 
     def get_pqcost(self, op, strat, runid = None):
         opcost, prov, disk, qcosts = self.est_cost(op,strat,runid=runid)
+        print "\t", op, '\t', opcost, '\t', strat
         return qcosts
         
 
@@ -93,7 +94,13 @@ class ModelPredictor(object):
             prov, disk, fcost, bcost, opcost = self.est_arr_cost(op, strat, runid, arridx)            
 
             fprob = self.fprobs.get(key,0)
-            qcost = (fcost * fprob) + (bcost * (1.0 - fprob))
+            qprob = self.qprobs.get(op, 0)
+            if qprob == 0:
+                fprob = 0.5
+                qprob = min(self.qprobs.values()) / 10
+            
+            #print "FPROB", fprob, qprob
+            qcost = qprob * ((fcost * fprob) + (bcost * (1.0 - fprob)))
 
             modes = strat.modes()
             for mode in modes:
@@ -169,7 +176,7 @@ class ModelPredictor(object):
         op, arridx = tuple(path[0])
         wop = op.wrapper
         mininputsize = ncoords
-        print "fq", op, arridx, ncoords
+        #print "fq", op, arridx, ncoords
 
         key = (op,arridx)
         if key not in self.counts:
@@ -199,7 +206,7 @@ class ModelPredictor(object):
     def _proc_bpath(self, ncoords, run_id, path):
         op, arridx = path[0]
         wop = op.wrapper
-        print "bq", op, arridx, ncoords
+        #print "bq", op, arridx, ncoords
 
         if op not in self.bqsizes:
             self.bqsizes[op] = []

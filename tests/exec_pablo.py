@@ -197,44 +197,70 @@ def create_workflow():
         qs = []
 
         # === Forward Queries ===
-        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
-
-
-        path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
+        # bad hospital query
+        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0)]
         for i in xrange(5,10):
             qs.append( [ [(42, i)], runid, path, 'forward' ] )
+        
+        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
+        qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
+        qs.append( [ [(j, i) for i in xrange(10, 15) for j in xrange(5, 42)], runid, path, 'forward' ] )
+        return qs
+        # path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
+        # for i in xrange(5,10):
+        #     qs.append( [ [(42, i)], runid, path, 'forward' ] )
 
-        path = [ (gn, 0), (en, 1), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        coords = [ (i, 0)  for i in xrange(20)]
-        qs.append( [ coords, runid, path, 'forward' ] )
+        # path = [ (gn, 0), (en, 1), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ] #, (val, 0) ]
+        # coords = [ (i, 0)  for i in xrange(20)]
+        # qs.append( [ coords, runid, path, 'forward' ] )
 
-        path = [ (gn, 0) , (cm, 2), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        coords = [ (i, 0)  for i in xrange(20)]
-        qs.append( [ coords, runid, path, 'forward' ] )
+        # path = [ (gn, 0) , (cm, 2), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
+        # coords = [ (i, 0)  for i in xrange(20)]
+        # qs.append( [ coords, runid, path, 'forward' ] )
+
+
+        # path = [ (pr, 2), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
+        # coords = [ (i, 0)  for i in xrange(20)]
+        # qs.append( [ coords, runid, path, 'forward' ] )
+
 
         #
         # backward queries
         #
 
-        path = [(val, 0), (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0) ]
-        for i in xrange(4):
-            qs.append([ [(0, i)], runid, path, 'backward' ])
+        # high likelihood query
+        path = [ (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        for i in xrange(10):
+            qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])
 
-        path = [(klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0) ]
-        for i in xrange(4):
-            qs.append([ [(0, random.randint(0, 6))], runid, path, 'backward' ])
+        # Relapse query
+        path = [ (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        for i in xrange(10):
+            qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])        
+            
+        
 
-        path = [(pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
-        qs.append([ [(random.randint(0,50), random.randint(0,50)) for i in xrange(10) ],
-                    runid, path, 'backward' ])
+        # path = [(klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0) ]
+        # for i in xrange(4):
+        #     qs.append([ [(0, i)], runid, path, 'backward' ])
 
-        path = [(pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
-        qs.append([ [(random.randint(0,50), random.randint(0,50)) for i in xrange(10) ],
-                    runid, path, 'backward' ])
+        # path = [(klass, 0), (prob, 0), (cum, 0), (pr, 1), (en, 0), (tr, 0) ]
+        # for i in xrange(4):
+        #     qs.append([ [(0, i)], runid, path, 'backward' ])
 
-        path = [(val, 0), (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
-        qs.append([ [(0, 0)], runid, path, 'backward' ])        
+            
+            
+
+        # path = [(pr, 0), (cm,1), (tr, 0), (ss, 0) ]
+        # for i in xrange(10):
+        #     qs.append([ [(random.randint(0,50), random.randint(0,50))  ], runid, path, 'backward' ])
+
+        # path = [(pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        # qs.append([ [(random.randint(0,50), random.randint(0,50)) for i in xrange(10) ],
+        #             runid, path, 'backward' ])
+
+        # path = [(val, 0), (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        # qs.append([ [(0, 0)], runid, path, 'backward' ])        
             
         return qs
 
@@ -292,18 +318,25 @@ def create_workflow():
 
 
         def pt1():
-            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)
+            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)
             set_ptr_wrapper_opt(strat)
             return 'PTMAP_ONE_KEY_B'
 
         def pt2():
-            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
+            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True)
             set_ptr_wrapper_opt(strat)
             return 'PTMAP_MANY_MANY_B'
 
         def pt3():
-            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)]),
+            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)]),
                        Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)]) ]
+            s = Strat(buckets)
+            set_ptr_wrapper_opt(s)
+            return 'PTMAP_F_B'
+
+        def pt4():
+            buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False)]) ]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
             return 'PTMAP_F_B'
@@ -325,13 +358,13 @@ def create_workflow():
             return 'PTR_ONE_KEY_F'
 
         def ptr4():
-            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
+            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)
             set_ptr_wrapper_opt(strat)
             return 'PTR_MANY_MANY_F'
 
         def ptr5():
             buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)]),
-                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)])]
+                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)])]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
             return 'PTR_F_B'
@@ -358,9 +391,13 @@ def create_workflow():
             for op, runid in torm:
                 b = Runtime.instance().delete_pstore(op, runid)
 
-            return 'opt_%f_%f' % (disk, runcost)
+            return 'opt_%.1f_%.1f' % (disk, runcost)
+        
+        return [noop, stat, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         #return [noop, stat, query_opt, ptr5, pt3, custom]
-        return [pt3]            
+#        return [ptr3]
+        return [noop, stat, query_opt, pt3, pt4]
+        return [noop, stat, query_opt, pt1]  
         return [noop, stat, query_opt, pt3]# custom]
 
         return [noop, stat, query_opt, ptr1, ptr2, ptr5, pt1, pt2, pt3, custom]
@@ -398,17 +435,25 @@ def run_qs(w, qs, bmodel):
 
 
 if __name__ == '__main__':
-    fname = '../data/MD_train_set.txt'    
+    fname = '../data/MD_train_set.txt'
+    runmode = 1
+    bmodel = bdynamic = False    
+
     if len(sys.argv) > 1:
-        runmode = int(sys.argv[1])
-        fname = '../data/MD_train_set_%dx.txt' % runmode
+        try:
+            runmode = int(sys.argv[1])
+            fname = '../data/MD_train_set_%dx.txt' % runmode
+        except:
+            pass
     else:
         runmode = 1
 
-    if len(sys.argv) > 2:
-        bmodel = bool(sys.argv[2])
-    else:
-        bmodel = False
+
+    for arg in sys.argv:
+        if arg == 'model':
+            bmodel = True
+        elif arg == 'dynamic':
+            bdynamic = True
 
 
     with file(fname, 'r') as f:
@@ -420,15 +465,16 @@ if __name__ == '__main__':
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
-        disksizes = [0.01, 0.1, 1, 10]
-        runcost = 100
+        disksizes = [ 0.1, 1, 10, 100 ]
+        #disksizes = [1000000000]
+        runcost = 100000
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
 
         qs = map(list, get_qs())
         for q in qs:
             q[0] = len(q[0])
         mp = ModelPredictor(eids, w, qs)
-        #w.boptimize = True
+        w.boptimize = bdynamic
         w.mp = mp
 
         
@@ -436,6 +482,7 @@ if __name__ == '__main__':
             Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+            continue
             print runtype, disk
             if bmodel:
                 run_model(ds, runmode, runtype, disk, runcost, eids)
@@ -457,10 +504,12 @@ if __name__ == '__main__':
         for q in qs:
             q[0] = len(q[0])
         mp = ModelPredictor(eids, w, qs)
-        #w.boptimize = True
+        w.boptimize = bdynamic
         w.mp = mp
-        
 
+        print "disk\t", sum( [mp.get_disk(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
+        print "cost\t", sum( [mp.get_pqcost(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
+        return
         if bmodel:
             run_model(ds, runmode, runtype)
         else:
@@ -472,7 +521,7 @@ if __name__ == '__main__':
             print
 
 
-
+    runtype = None
     for set_strat in get_strats():
         try:
             runtype = set_strat()
