@@ -20,6 +20,8 @@ WHERE e1.rowid = wr.eid and e1.runtype = 'noop' and
 NORMDISK = """select sum(wi.area) * 8.00002
 FROM workflow_inputs as wi, workflow_run as wr
 WHERE wi.wid = wr.rowid and wr.eid = ?"""
+NORMDISK = """select width * height * 8.00002
+FROM exec where rowid = ?"""
 
 PQCOST = """SELECT avg(pq.cost)
      FROM pq
@@ -38,6 +40,8 @@ ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
 stats = Stats.instance('./_output/pablostats.db')
 #stats = Stats.instance('./_output/stats.db')
 #stats = Stats.instance('./_output/lsstfull.db')
+#stats = Stats.instance('./results/lsstfull.db.nov.10.2011')
+
 conn = stats.conn
 cur = conn.cursor()
 
@@ -51,7 +55,7 @@ def get_exps(runmode):
 
 def get_labels(exps):
     replaces = (('KEY', 'REF'), ('PTR_', ''), ('_B', '_b'), ('_F', '_f'))
-    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'))
+    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SUBZERO'))
     
     
     labels = []
@@ -59,11 +63,11 @@ def get_labels(exps):
         label = "disk(%d)\nrun(%d)" % (dcon, rcon)
         label = 'config-%s' % notes[-1:]
         label = notes.upper()
-        # for k,v in replaces:
-        #     label = label.replace(k,v)
-        # for k,v in fullreps:
-        #     if k == label:
-        #         label = v
+        for k,v in replaces:
+            label = label.replace(k,v)
+        for k,v in fullreps:
+            if k.lower() == label.lower():
+                label = v
         print label
         labels.append(label)
     return labels
@@ -76,7 +80,7 @@ def get_baseline(rowid):
     return opcost, normdisk
 
 def get_overhead(exps):
-    OVERHEAD = """SELECT sum(opcost), sum(disk), sum(idx)
+    OVERHEAD = """SELECT sum(opcost), sum(disk), 0
     FROM pstore_overhead as po, workflow_run as wr, exec
     WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func' """
 
@@ -88,7 +92,7 @@ def get_overhead(exps):
         cur.execute(OVERHEAD, (rowid,))
         opcost, disk, idx = cur.fetchone()
 
-        print "opcost", notes, opcost, basecost, disk, basedisk
+        print "opcost", notes, opcost, basecost, disk, basedisk, disk/basedisk
         
         table['overhead'].append((opcost - basecost) / basecost)
         table['disk'].append(float(disk) / basedisk)
@@ -123,7 +127,7 @@ def get_plot(runmode):
     ymax = max(map(max, table.values()))
 
 
-    draw(ymax * 1.2, ['overhead','disk', 'idx'], table, labels, 'overhead%d' % runmode, 
+    draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, 
          'X times baseline', plotargs={'yscale':'linear'})
 
 
@@ -181,9 +185,21 @@ def get_plot(runmode):
 
 def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     # draw the graph
+    fontP = FontProperties()
+    fontP.set_size(15)
     figparams = matplotlib.figure.SubplotParams(top=0.9)
-    fig = plt.figure(figsize=(15, 5), subplotpars=figparams)
-    ax = fig.add_subplot(111, ylim=[0.0, 1*1.2], **plotargs)
+    fig = plt.figure(figsize=(15, 7), subplotpars=figparams)
+    ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
+    ax.titlesize = 15
+    ax.labelsize = 50
+
+    # for tick in ax.xaxis.get_major_ticks():
+    #     tick.label1.set_fontsize(20)
+    # for tick in ax.yaxis.get_major_ticks():
+    #     tick.label1.set_fontsize(20)
+
+
+
     ind = np.arange(len(table[table.keys()[0]]))#3)
     width = 0.07#0.037
     colors = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
@@ -197,8 +213,6 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
         rects.append(rect)
         n += 1
 
-    fontP = FontProperties()
-    fontP.set_size('small')
     # ax.legend(loc='upper center',# 
     #           ncol=3, fancybox=True, shadow=True, prop=fontP)        
     plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features],

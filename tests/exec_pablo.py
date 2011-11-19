@@ -198,19 +198,19 @@ def create_workflow():
 
         # === Forward Queries ===
         path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        for i in xrange(3,10):
-            qs.append( [ [(i, i)], runid, path, 'forward' ] )
+        qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
+
 
         path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        for i in xrange(3,10):
-            qs.append( [ [(i, i)], runid, path, 'forward' ] )
+        for i in xrange(5,10):
+            qs.append( [ [(42, i)], runid, path, 'forward' ] )
 
         path = [ (gn, 0), (en, 1), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        coords = [ (0, i)  for i in xrange(20)]
+        coords = [ (i, 0)  for i in xrange(20)]
         qs.append( [ coords, runid, path, 'forward' ] )
 
         path = [ (gn, 0) , (cm, 2), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        coords = [ (0, i)  for i in xrange(20)]
+        coords = [ (i, 0)  for i in xrange(20)]
         qs.append( [ coords, runid, path, 'forward' ] )
 
         #
@@ -297,9 +297,9 @@ def create_workflow():
             return 'PTMAP_ONE_KEY_B'
 
         def pt2():
-            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.KEY, Spec.KEY), True)
+            strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTMAP_KEY_KEY_B'
+            return 'PTMAP_MANY_MANY_B'
 
         def pt3():
             buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.KEY), True)]),
@@ -308,15 +308,16 @@ def create_workflow():
             set_ptr_wrapper_opt(s)
             return 'PTMAP_F_B'
 
+
         def ptr1():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
             return 'PTR_ONE_KEY_B'
 
         def ptr2():
-            strat = Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True)
+            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_KEY_KEY_B'
+            return 'PTR_MANY_MANY_B'
 
         def ptr3():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)
@@ -324,16 +325,24 @@ def create_workflow():
             return 'PTR_ONE_KEY_F'
 
         def ptr4():
-            strat = Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)
+            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_KEY_KEY_F'
+            return 'PTR_MANY_MANY_F'
 
         def ptr5():
-            buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True)]),
-                       Bucket([Desc(Mode.PTR, Spec(Spec.KEY, Spec.KEY), False)])]
+            buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)])]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
             return 'PTR_F_B'
+
+        def custom():
+            mkf = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
+            pt = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)
+            Runtime.instance().set_strategy(cm , mkf)
+            Runtime.instance().set_strategy(val , mkf)
+            Runtime.instance().set_strategy(pr , pt)
+            return "CUSTOM"
 
         def opt(ds, qs, eids, runmode, disk, runcost):
             qs = map(list, qs)
@@ -350,8 +359,11 @@ def create_workflow():
                 b = Runtime.instance().delete_pstore(op, runid)
 
             return 'opt_%f_%f' % (disk, runcost)
-        return [noop, stat, query_opt, opt]#pt2]
-        return [noop, stat, query_opt, ptr1, ptr2, ptr5, pt1, pt2, pt3]#ptr1, ptr2, ptr3, ptr4, ptr5, query_all]
+        #return [noop, stat, query_opt, ptr5, pt3, custom]
+        return [pt3]            
+        return [noop, stat, query_opt, pt3]# custom]
+
+        return [noop, stat, query_opt, ptr1, ptr2, ptr5, pt1, pt2, pt3, custom]
         # [noop, stat, query_all, query_opt, ptr0, ptr00, ptr1, ptr2, ptr3,
         #  ptr4, ptr5, opt]
     
@@ -360,16 +372,11 @@ def create_workflow():
 def run_qs(w, qs, bmodel):
     ret = []
     for coords, runid, path, direction in qs:
-        if direction == 'forward':
-            w.prepare_forward_path(runid, path)
-        elif direction == 'backward':
-            w.prepare_backward_path(runid, path)
-        
         start = time.time()        
         if direction == 'forward':
-            res = w.forward_path(coords, runid, path)
+            res,optcost = w.forward_path(coords, runid, path)
         elif direction == 'backward':
-            res = w.backward_path(coords, runid, path)
+            res,optcost = w.backward_path(coords, runid, path)
 
         nres = 0
         for coord in res:
@@ -378,7 +385,7 @@ def run_qs(w, qs, bmodel):
         #nres = len(res)
 
         end = time.time()
-        qcost = end - start
+        qcost = end - start - optcost
         
         path_ops = [x[0] for x in path]
         Stats.instance().add_pq(runid, path_ops, direction, [len(coords)], qcost, nres)
@@ -421,7 +428,7 @@ if __name__ == '__main__':
         for q in qs:
             q[0] = len(q[0])
         mp = ModelPredictor(eids, w, qs)
-        w.boptimize = True
+        #w.boptimize = True
         w.mp = mp
 
         
@@ -450,7 +457,7 @@ if __name__ == '__main__':
         for q in qs:
             q[0] = len(q[0])
         mp = ModelPredictor(eids, w, qs)
-        w.boptimize = True
+        #w.boptimize = True
         w.mp = mp
         
 

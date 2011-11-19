@@ -36,10 +36,10 @@ if __name__ == '__main__':
         queries.append([[(0,3)], runid, [(mean,0), (diff,0), (conv,0), (clus,0)]])
         queries.append([[(3,3)], runid, [(mean,0), (diff,0), (conv,0), (clus,0)]])
         for q in queries:
-            print len( w.forward_path(*q))
+            print len( w.forward_path(*q)[0])
         output = clus.wrapper.get_output(runid)
         indices = map(tuple,np.argwhere(output))
-        print len(w.backward_path([ indices[0] ], runid, [(clus,0)]))
+        print len(w.backward_path([ indices[0] ], runid, [(clus,0)])[0])
 
 
         
@@ -60,23 +60,30 @@ if __name__ == '__main__':
     w.connect(conv, clus, 0)
 
     w.default_strategy()
-    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
+    strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
     print strat
     Runtime.instance().set_strategy(clus, strat)
 
+    if len(sys.argv) <= 1:
+        print "python exec_lsst_small.py [small | big]"
+        exit()
+    elif sys.argv[1] == 'small':
 
-    # small image!
-    img = numpy.array([[0,0,1,1],
-                       [0,0,0,1],
-                       [1,0,0,0],
-                       [1,1,0,0]], dtype=np.float)
+        # small image!
+        img = numpy.array([[0,0,1,1],
+                           [0,0,0,1],
+                           [1,0,0,0],
+                           [1,1,0,0]], dtype=np.float)
+    elif sys.argv[1] == 'big':
+        # big image!
+        img = numpy.zeros((500,500), dtype=float)
+        for i in xrange(50):
+            for j in xrange(50):
+                img[i,j] = 1
+    else:
+        print "python exec_lsst_small.py [small | big]"
+        exit()
 
-    # big image!
-    img = numpy.zeros((500,500), dtype=float)
-    for i in xrange(50):
-        for j in xrange(50):
-            img[i,j] = 1
-        
 
     Stats.instance().add_exec(10, 10,
                               runmode, 'grid', '_output', "lsst_grid")

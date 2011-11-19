@@ -101,6 +101,8 @@ class Desc(object):
                     x.append("BOX")
                 elif foo == Spec.GRID:
                     x.append("GRID")
+                elif foo == Spec.BINARY:
+                    x.append("BIN")
                 else:
                     x.append(str(foo))
             s = '%s_%s' % (s, "_".join(x))

@@ -108,16 +108,16 @@ if __name__ == "__main__":
         for inputs, runid, path, direction in queries:
             start = time.time()
             if direction == 'forward':
-                res = w.forward_path(inputs, runid, path)
+                res, optcost = w.forward_path(inputs, runid, path)
             else:
-                res = w.backward_path(inputs, runid, path)
+                res, optcost = w.backward_path(inputs, runid, path)
 
             n = 0
             for coord in res:
                 n+=1
                 if maxoutput != -1 and n >= maxoutput: break
             qcost = time.time() - start
-            totalcost += qcost
+            totalcost += qcost - optcost
 
             path_ops = [x[0] for x in path]
             pqid = Stats.instance().add_pq(w._runid-1, path_ops, direction,
@@ -468,51 +468,51 @@ if __name__ == "__main__":
 
 
     # noop
-    set_all_strategy(Strat.noop(), w)
+    # set_all_strategy(Strat.noop(), w)
         
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'noop', logdir, "lsst_noop")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-    Stats.instance().finish_exec()    
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'noop', logdir, "lsst_noop")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+    # Stats.instance().finish_exec()    
 
-    # stats
-    set_all_strategy(Strat.stat(), w)
+    # # stats
+    # set_all_strategy(Strat.stat(), w)
         
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'stats', logdir, "lsst_stats")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-    Stats.instance().finish_exec()
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'stats', logdir, "lsst_stats")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+    # Stats.instance().finish_exec()
 
-    # query everything
+    # # query everything
+    # set_all_strategy(Strat.query(), w)
+    # for op in [cr1, cr2, clust, rmcr]:
+    #     Runtime.instance().set_strategy(op, Strat.query())
+        
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'query', logdir, "lsst_queryall")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+
+    # for maxcount in [-1]:#, 1, 10, 100]:
+    #     print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
+    # Stats.instance().finish_exec()        
+
+    # # PSET everything
+    # set_all_strategy(Strat.query(), w)
+    # for op in [cr1, cr2, clust, rmcr]:
+    #     Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
+        
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'one_key', logdir, "lsst_one_key")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+    # for maxcount in [-1]:#, 1, 10, 100]:
+    #     print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
+    # Stats.instance().finish_exec()
+
+
+    # # many_key everything
     set_all_strategy(Strat.query(), w)
     for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, Strat.query())
-        
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'query', logdir, "lsst_queryall")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-
-    for maxcount in [-1]:#, 1, 10, 100]:
-        print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
-    Stats.instance().finish_exec()        
-
-    # PSET everything
-    set_all_strategy(Strat.query(), w)
-    for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY)))
-        
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'one_key', logdir, "lsst_one_key")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-    for maxcount in [-1]:#, 1, 10, 100]:
-        print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
-    Stats.instance().finish_exec()
-
-
-    # many_key everything
-    set_all_strategy(Strat.query(), w)
-    for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY)))
+        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
         
     Stats.instance().add_exec(smallshape[0], smallshape[1],
                               runmode, 'many_key', logdir, "lsst_many_key")

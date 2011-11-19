@@ -47,7 +47,7 @@ def index_model_desc(desc, fanin, fanout, density, noutput):
         return 0
     if desc.spec.outcoords == Spec.COORD_ONE:
         return 0
-    return ( noutput / fanout ) + (24 + 60.18) + 7340
+    return ( noutput / fanout ) * (24 + 60.18) + 7340
 
 
 def disk_model(strat, fanin, fanout, density, noutput):
@@ -302,25 +302,28 @@ def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inp
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
-            cost = forward_model_desc(desc, fanin, fanout, density, noutput,
-                                      runtime, nqs, sel, inputarea=inputarea)
+            cost = sum(forward_model_desc(desc, fanin, fanout, density, noutput,
+                                          runtime, nqs, sel, inputarea=inputarea))
             bcost += cost
         scost = min(scost, bcost)
     return scost
 
-def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
+def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, debug=False):
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
-        return sum(backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea))
+        return backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea)
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0.0
     if desc.mode == Mode.PT_MAPFUNC:
-        return 1000000000
+        return 1000000000, 0,0,0
 
-    nentries = noutput / fanout
+    if desc.spec.outcoords == Spec.COORD_ONE:
+        nentries = noutput
+    else:
+        nentries = noutput / fanout
     if not desc.backward:
         desc = Desc(desc.mode, desc.spec, True)
-        return sum(backward_model_desc(desc, fanout, fanin, density, noutput, runtime, nqs, sel, inputarea, nentries))
-    return 1000000000
+        return backward_model_desc(desc, fanout, fanin, density, noutput, runtime, nqs, sel, inputarea, nentries, debug=debug)
+    return 1000000000, 0,0,0
     
 def box_model(density, fanin, inputarea, runtime, nptrs):
     a,b,c = 0.08147001934235978, 0.00852998065764022, 1.4085629809324707
@@ -344,7 +347,7 @@ def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, in
     return scost
 
 
-def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, nentries=None):
+def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, nentries=None, debug=False):
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0,0,0,0
     if desc.mode == Mode.QUERY:
@@ -360,7 +363,10 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
 
 
     if nentries == None:
-        nentries = noutput / fanout
+        if desc.spec.outcoords == Spec.COORD_ONE:
+            nentries = noutput
+        else:
+            nentries = noutput / fanout
 
     spec = desc.spec
     keycost, parsecost, extractcost, idxcost = 0,0,0,0
@@ -382,6 +388,8 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
             entrysize += 18
     a,b =    1.95947313e-10,   3.94434154e-08            
     perbdbcost = (nentries * 2 * a + entrysize * b )
+    if debug or True:
+        print "\tperbdbcost", desc, nentries, entrysize, perbdbcost, fanin, fanout
 
     
     

@@ -332,7 +332,7 @@ class DedupQuery(Query):
                 qrlog.debug( "dedup: found maxcount cells!\t%d\t%d", self.maxcount, nseen )
                 break
 
-        qrlog.debug( "loadcost: \t%f\t%d", loadcost / nseen, nseen )
+        qrlog.debug( "loadcost: \t%f\%f\t%d", loadcost, loadcost / nseen, nseen )
         self.child.close()
 
     def __len__(self):

@@ -664,6 +664,7 @@ if __name__ == '__main__':
 
 
         def idx(fanout, fanin, noutput, a,b):
+            return (noutput / fanout) * math.log(noutput/fanout) * (24 + a) + b
             return (noutput / fanout) * (24 + a ) + b #* math.log(noutput/fanout)#+ b * fanin + c)
 
         def bdb(fanout, fanin, noutput, a,b):
@@ -673,13 +674,13 @@ if __name__ == '__main__':
             return fanin * a + b
 
     
-        #fit(db, 'idx', fgen(idx))
+        fit(db, 'idx', fgen(idx))
         #fit(db, 'disk - (( noutput / fanout ) + (24 + 60.18) + 7340)', fgen(key_disk))
         # fit(db, 'serin', fgen(f1))
         #fit(db, 'bdbcost', fgen(bdb))
         #fit(db, 'bdbcost', fgen(f2))
         #fit(db, 'updatecost', fgen(f3))
-        fit(db, 'cost', fgen(bcost), ' backward = 1 and noutput = 10000 and qsize = 2000')
+        #fit(db, 'cost', fgen(bcost), ' backward = 1 and noutput = 10000 and qsize = 2000')
 
 
     db.close()

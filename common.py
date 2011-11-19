@@ -265,8 +265,10 @@ class Subsample(Op):
             outcoords = ((x,y) for x in xrange(output.shape[0]) for y in xrange(output.shape[1]))
             #boxcoords = [(x,y) for x in xrange(2) for y in xrange(2)]
             for outcoord in outcoords:
+                #print outcoord[0] + mins[0], outcoord[1]+mins[1]
                 pstore.write( (outcoord,), ((outcoord[0]+mins[0], outcoord[1]+mins[1]), ))
         end = time.time()
+
         return output, {'provoverhead' : (end-start)}
 
     def takes(self, x, I):

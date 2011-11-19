@@ -179,7 +179,7 @@ class Runtime(object):
         # we should just be creating a QueryStore
         if Mode.QUERY not in strat.modes():
             raise RuntimeError, "trying to create query pstore :%s" % str(strat)
-        print "using QUERY: ", op
+
         return PStoreQuery(op, run_id, '', Desc(Mode.QUERY, Spec.default(), True))
             
 

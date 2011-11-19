@@ -20,7 +20,6 @@ class ModelPredictor(object):
 
         self._cache_stats()
         self._proc_queries()
-
         self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
         self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
 
@@ -55,6 +54,9 @@ class ModelPredictor(object):
     
     def get_input_shape(self, op, arridx):
         return self.cache[(op, arridx)][7]
+
+    def get_output_shape(self, op, arridx):
+        return self.cache[(op, arridx)][6]
 
     def get_provcost(self, op, strat, runid = None):
         opcost, prov, disk, qcosts = self.est_cost(op,strat, runid=runid)
@@ -117,20 +119,24 @@ class ModelPredictor(object):
         return 0, 0, disks, prob * qcosts
 
             
-    def est_arr_cost(self, op, strat, runid, arridx):
+    def est_arr_cost(self, op, strat, runid, arridx, fqsize=None, bqsize=None):
         key = (op, arridx)
         stats = self.cache[key]
         fanin, area, density, oclustsize, nptrs, noutcells, outputsize, inputsize, opcost = stats
         #print "stats",  op, strat, arridx, weight, stats
 
-        fqsize = self.fqsizes.get(op, 1)
-        bqsize = self.bqsizes.get(op, 1)
+        if fqsize is None:
+            fqsize = self.fqsizes.get(op, 1)
+        if bqsize is None:
+            bqsize = self.bqsizes.get(op, 1)
         boxperc = area / inputsize
 
         prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
         disk = disk_model(strat, fanin, oclustsize, density, noutcells)
         fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
         bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
+        # idx,key,parse,extract = forward_model_desc(list(strat.descs())[0], fanin, oclustsize,
+        #                                            density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
 
         return prov, disk, fcost, bcost, opcost
 
@@ -163,7 +169,7 @@ class ModelPredictor(object):
         op, arridx = tuple(path[0])
         wop = op.wrapper
         mininputsize = ncoords
-
+        print "fq", op, arridx, ncoords
 
         key = (op,arridx)
         if key not in self.counts:
@@ -183,12 +189,17 @@ class ModelPredictor(object):
             for child, idx in wop.children():
                 print child, idx
             raise RuntimeError, ("could not find %s\t%d" % ( path[0][0], path[0][1] ))
+
+        fanout = self.cache.get((op, arridx), (1,1))[3]
+        mininputsize = ncoords * fanout
+        mininputsize = min(mininputsize, self.get_output_shape(op, arridx))
         
         self._proc_fpath(mininputsize, run_id, path)
 
     def _proc_bpath(self, ncoords, run_id, path):
         op, arridx = path[0]
         wop = op.wrapper
+        print "bq", op, arridx, ncoords
 
         if op not in self.bqsizes:
             self.bqsizes[op] = []

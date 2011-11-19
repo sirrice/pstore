@@ -10,7 +10,7 @@ from stats import Stats
 
 wlog = logging.getLogger('workflow')
 logging.basicConfig()
-wlog.setLevel(logging.ERROR)
+wlog.setLevel(logging.DEBUG)
 
 
 class Wrapper(object):
@@ -107,6 +107,7 @@ class Wrapper(object):
         wlog.info('%s.run(%d)', self.op, run_id)
         pstore = self.op.pstore(run_id)
 
+
         start = time.time()        
         output, stats = self.op.run(newinputs, run_id)
         runtime = time.time() - start
@@ -115,6 +116,10 @@ class Wrapper(object):
 
         # calculate runtime and provenance overheads
         pstore.close()
+        if isinstance(pstore, PStore3):
+            for f in ('outcache', 'incache', 'serin', 'serout', 'mergcost', 'bdbcost',
+                      'keycost', 'idxcost', 'write', 'flush'):
+                print "%s\t%f"%(f, pstore.get_stat(f))
 
         # store outputs
         outputid = ArrayStore.instance().add(output)
@@ -347,93 +352,93 @@ class Workflow(object):
 
         wlog.info("workflow #%d done!", run_id)
 
-    def best_query_strats(self, run_id, path):
-        
-        return beststrats
-        
-    def prepare_forward_path(self, run_id, path):
-        beststrats = {}                    
-        if self.boptimize:
-            for op, arridx in path:
-                beststrat = None
-                bestcost = None
-                for strat in Runtime.instance().available_strats(op, run_id):
-                    _,_,fcost,_,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx)
-                    if beststrat == None or fcost < bestcost:
-                        beststrat = strat
-                        bestcost = fcost
-                beststrats[(op,arridx)] = beststrat
-        self.beststrats = beststrats
+
+    def pick_forward_strat(self, qsize, op, arridx, run_id):
+        fanin, area, density, oclustsize, nptrs, noutcells, outputsize, inputsize, opcost = self.mp.cache[(op,arridx)]
+        wlog.debug( 'PrepFQ\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%f\t%f', str(op), fanin, oclustsize, nptrs, noutcells, inputsize, outputsize, density, opcost  )
+        beststrat = None
+        bestcost = None
+        for strat in Runtime.instance().available_strats(op, run_id):
+            _,_,fcost,_,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx, fqsize=qsize)
+            wlog.debug( 'PrepFQ\t%s\t%d\t%s\t%d\t%f', op, arridx, strat, qsize, fcost)
+            if beststrat == None or fcost < bestcost:
+                beststrat = strat
+                bestcost = fcost
+        return beststrat
+
 
     def forward_path(self, incoords, run_id, path):
         """
         Compile query into a query plan.
         Return: query plan
         """
-      
-        start = time.time()
+        optcost = 0.0
         child = Scan(incoords)
         for op, arridx in path:
-            start = time.time()
+           
             wop = op.wrapper
             shape = wop.get_output_shape(run_id)
 
             if self.boptimize:
-                pstore = Runtime.instance().get_query_pstore(op, run_id, self.beststrats[(op,arridx)])
+                optstart = time.time()
+                strat = self.pick_forward_strat(len(child), op, arridx, run_id)
+                optcost += time.time() - optstart
+                pstore = Runtime.instance().get_query_pstore(op, run_id, strat)
             else:
                 pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
+
+            start = time.time()
             child = pstore.join(child, arridx, backward=False)
-            
             child = DedupQuery(child, shape)
             wlog.debug( 'Fpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
 
         end = time.time()
-        #print "forward query cost", (end-start)
-        return DedupQuery(child, shape)
+        return DedupQuery(child, shape), optcost
         return NBDedupQuery(q)
 
-    def prepare_backward_path(self, run_id, path):
-        # calculate the best path on op by op basis
-        beststrats = {}            
-        if self.boptimize:
-            for op, arridx in path:
-                beststrat = None
-                bestcost = None
-                for strat in Runtime.instance().available_strats(op, run_id):
-                    _,_,_,bcost,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx)
-                    if beststrat == None or bcost < bestcost:
-                        beststrat = strat
-                        bestcost = bcost
-                beststrats[(op,arridx)] = beststrat
-        self.beststrats = beststrats
+    def pick_backward_strat(self, qsize, op, arridx, run_id):
+        print "\tbackoptimizer", op, qsize
+        beststrat = None
+        bestcost = None
+        for strat in Runtime.instance().available_strats(op, run_id):
+            _,_,_,bcost,opcost = self.mp.est_arr_cost(op, strat, run_id, arridx, bqsize=qsize)
+            if beststrat == None or bcost < bestcost:
+                beststrat = strat
+                bestcost = bcost
+        return beststrat
+        
+
 
     def backward_path(self, outcoords, run_id, path):
         """
         return: query plan
         """
-
+        optcost = 0.0
         child = Scan(outcoords)
         for op, arridx in path:
             wop = op.wrapper
             shape = wop.get_input_shape(run_id, arridx)
 
             if self.boptimize:
-                pstore = Runtime.instance().get_query_pstore(op, run_id, self.beststrats[(op,arridx)])
+                optstart = time.time()
+                strat = self.pick_backward_strat(len(child), op, arridx, run_id)
+                optcost += time.time() - optstart
+                pstore = Runtime.instance().get_query_pstore(op, run_id, strat)
             else:
                 pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
 
+            start = time.time()
             child = pstore.join(child, arridx, backward=True)
             try:
-                start = time.time()
                 child = DedupQuery(child, shape)
                 wlog.debug( 'Bpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
             except:
                 wlog.error( 'error running back\t%s',  op )
                 raise
 
-        return DedupQuery(child, shape)
+        return DedupQuery(child, shape), optcost
 
     def rewrite(self, root):
         if isinstance(root, Scan): return root

@@ -4,7 +4,6 @@ from StringIO import StringIO
 from operator import mul, or_, and_
 from ctypes import create_string_buffer
 
-
 from strat import *
 from queryresult import *
 from util import subarray
@@ -112,19 +111,30 @@ class SpatialIndex(object):
         
 
     def set(self, box, val):
-        self.rtree.add(self.id, box, val)
+        #self.rtree.add(self.id, box)#, val)
+        self.rtree.add(val, box)#, val)
         self.id += 1
         #if val is not None:
          #   self.bdb[str(self.id)] = val
 
     def get_pt(self, pt):
-        return self.rtree.intersection(pt, objects = True)
+        """
+        @return generator of bdb keys
+        """
+        for id in self.rtree.intersection(pt):
+            yield 'b:%d' % id
+        #return self.rtree.intersection(pt)#, objects = True)
         # for item in self.rtree.intersection(pt, objects = True):
         #     item.object = self.bdb.get(str(item.id), None)
         #     yield item
 
     def get_box(self, box):
-        return self.rtree.intersection(box, objects = True)
+        """
+        @return generator of bounding boxes
+        """
+        for item in self.rtree.intersection(box, objects=True):
+            yield (item.bbox[:2], item.bbox[2:])
+        #return self.rtree.intersection(box)#, objects = True)
         # for item in self.rtree.intersection(box, objects = True):
         #     item.object = self.bdb.get(str(item.id), None)
         #     yield item
@@ -674,9 +684,9 @@ class DiskStore(IPstore):
             if Spec.BOX == self.spec.outcoords:
                 pred = lambda obj: self._parse(StringIO(obj[0]), Spec.BOX)
                 matches = in_box
-                def getkey(item):
-                    box = item.bbox
-                    box = (box[:2],box[2:])
+                def getkey(box):
+                    #box = item.bbox
+                    #box = (box[:2],box[2:])
                     box = self.enc_out(box)
                     key = StringIO()
                     self._serialize(box, key, Spec.BOX)
@@ -684,28 +694,39 @@ class DiskStore(IPstore):
             else:
                 pred = self.extract_outcells_enc
                 matches = lambda coord, outcoords: self.enc_out(coord) in outcoords
-                getkey = lambda item: self.bdb[item.object]
+                getkey = lambda key: self.bdb[key]#'b:%d' % item]
             extract = lambda obj: self.extract_incells(obj, arridx)
 
+
+            keysize = 0
+            valsize = 0
 
             niter = 0
             for l in left:
                 niter += 1
                 l = tuple(l)
                 start = time.time()
-                items = self.outidx.get_pt(l)
+                if self.spec.outcoords == Spec.BOX:
+                    items = self.outidx.get_box(l)
+                else:
+                    items = self.outidx.get_pt(l)
                 for item in items:
-                    item.object
+                    pass
                 itemcost += time.time() - start
-
-                items = self.outidx.get_pt(l)
+                
+                if self.spec.outcoords == Spec.BOX:
+                    items = self.outidx.get_box(l)
+                else:
+                    items = self.outidx.get_pt(l)
                 for item in items:
                     start = time.time()
                     key = getkey(item)
+                    keysize += len(key)
                     keycost += time.time() - start
 
                     start = time.time()
                     r = (key, self.bdb[key])
+                    valsize += len(r[1])
                     datacost += time.time() - start 
 
                     
@@ -727,11 +748,14 @@ class DiskStore(IPstore):
             self.inc_stat('extractcost', extractcost)
             self.inc_stat('nhits', nhits)
 
+
             plog.debug( "keycost  \t%f", keycost)
             plog.debug( "itemcost  \t%f", itemcost) 
             plog.debug( "parsecost\t%f", parsecost)
             plog.debug( "extract  \t%f", extractcost)
             plog.debug( "nhits    \t%f\t%f", nhits, niter)
+            if nhits > 0:
+                plog.debug( "key/vallen\t%f\t%f", keysize/nhits, valsize/nhits) 
 
         else:  # forward query
             if Spec.BOX == self.spec.payload:
@@ -776,6 +800,7 @@ class DiskStore(IPstore):
         nhits = 1.0
         total = 0.0
         tstart = time.time()
+        
         for l in left:
             niter += 1
             start = time.time()
@@ -783,8 +808,8 @@ class DiskStore(IPstore):
             key = struct.pack('I', enc)
             keycost += time.time() - start
             if key not in self.bdb: continue
-            nhits += 1
 
+            nhits += 1
             start = time.time()
             payload = self.bdb[key]
             datacost += time.time() - start
@@ -805,6 +830,7 @@ class DiskStore(IPstore):
         plog.debug( "datacost:    %f\t%f", datacost, datacost / nhits )
         plog.debug( "extractcost: %f\t%f", extractcost, extractcost / nhits )
         plog.debug( "keycost:     %f\t%f", keycost, keycost / niter )
+        plog.debug( "nhits:     %f", nhits)        
 
 
     def open(self, new=False):
@@ -1020,7 +1046,7 @@ class PStore2(DiskStore):
                 start = time.time()
                 self.bdb[idxkey] = key
                 self.bdb[key] = val
-                self.outidx.set(obox, idxkey)
+                self.outidx.set(obox, self.nbdbitems)
                 bdbcost += time.time() - start
                 self.nbdbitems += 1
         self.inc_stat('bdbcost', bdbcost)
@@ -1038,6 +1064,7 @@ class PStore3(DiskStore):
         self.nbdbitems = 0
         self.outbuf = None
         self.inbufs = [None] * self.nargs
+        self.mergebuf = None
         
 
     def reset_cache(self):
@@ -1049,7 +1076,15 @@ class PStore3(DiskStore):
         if self.outbuf == None:
             self.outbuf = None
             self.inbufs = [None] * self.nargs
-        
+
+    def merge_strings(self, *strs):
+        size = sum(map(len, strs))
+        if self.mergebuf == None or size > len(self.mergebuf):
+            print "allocating new merge buffer", (size * 2)
+            self.mergebuf = create_string_buffer(size * 2)
+        fmt = ''.join(('%ds' % len(s) for s in strs))
+        struct.pack_into(fmt, self.mergebuf, 0, *strs)
+        return self.mergebuf[:size]
 
 
     def uses_mode(self, mode):
@@ -1097,7 +1132,6 @@ class PStore3(DiskStore):
         #self.update_stats(outcoords, *incoords_arr)
         if self.outcache is None:
             self.reset_cache()
-
         start = time.time()
         box = bbox(outcoords)
         self.outboxes.append(box)
@@ -1109,12 +1143,13 @@ class PStore3(DiskStore):
             self.add_to_cache(cache, counts, incoords, self.spec.payload)
         self.inc_stat('incache', time.time() - start)
 
-        if min(map(len,self.incache), len(self.outcache)) >  1000:
+        if min(map(len,self.incache), len(self.outcache)) >  10000:
             self.flush()
 
     @instrument
     def flush(self):
         if not len(self.outcache): return
+        KEYLEN = struct.pack("I", 14)
     
         start = time.time()
         oencs = [self.enc_out(outcoord) for outcoord in self.outcache]
@@ -1141,6 +1176,7 @@ class PStore3(DiskStore):
                 self.inbufs[arridx] = create_string_buffer(valsize)
             struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
         self.inc_stat('serin', time.time() - start)
+        
 
         def foo(buf, count, offset, mode):
             if mode in (Spec.COORD_MANY, Spec.KEY):
@@ -1152,13 +1188,17 @@ class PStore3(DiskStore):
             elif mode == Spec.COORD_ONE:
                 end = offset + 4
             ret = buf[offset:end]
-
+            
+            
             if mode == Spec.KEY:
+                start = time.time()
                 h = str(hash(ret) % 4294967296)
                 key = 'key:%s' % h.rjust(10, '_')
                 self.bdb[key] = ret
-                ret = struct.pack('I%ds' % len(key), len(key), key)
+                ret = '%s%s' % (KEYLEN, key)
+                self.inc_stat('keycost', time.time()-start)
                 return ret, end
+            
             return ret, end
 
         def merge_serialized(old, new, arridx, mode = None):
@@ -1172,17 +1212,18 @@ class PStore3(DiskStore):
                 newval = self.bdb[newkey]
 
                 newval = merge_serialized(oldval, newval, arridx, Spec.COORD_MANY)
-
                 h = str(hash(newval) % 4294967296)
                 key = 'key:%s' % h.rjust(10, '_')
                 self.bdb[key] = newval
-                key = struct.pack('I14s', len(key), key)
-                return key
+                #del self.bdb[oldkey]
+                #del self.bdb[newkey]
+                return '%s%s' % (KEYLEN, key)
             elif mode == Spec.COORD_MANY:
                 oldn, = struct.unpack('I', old[:4])
                 newn, = struct.unpack('I', new[:4])
                 n = struct.pack('I', oldn + newn)
-                return ''.join([n, old[4:], new[4:]])
+                #return ''.join([n, old[4:], new[4:]])
+                return self.merge_strings(n, old[4:], new[4:])
             elif mode == Spec.GRID:
                 oldtmp = self._parse(StringIO(old), mode)
                 newtmp = self._parse(StringIO(new), mode)
@@ -1241,12 +1282,14 @@ class PStore3(DiskStore):
                 raise RuntimeError
                 
         bdbcost = 0.0
+        idxcost = 0.0
         mergecost = 0.0
         keyoffset = 0
         valoffsets = [0] * len(self.inbufs)
         #print len(self.inbufs), len(self.outboxes), len(self.outcounts), map(len, self.incounts)
 
         for obox, ocount,  icounts in zip(self.outboxes, self.outcounts, zip(*self.incounts)):
+            
             obox = (obox[0][0], obox[0][1], obox[1][0], obox[1][1])
             vals = []
             for idx in xrange(len(valoffsets)):
@@ -1256,40 +1299,58 @@ class PStore3(DiskStore):
                 vals.append(ba)
             val = ''.join(vals)
 
-            
             if self.spec.outcoords == Spec.COORD_ONE:
                 for i in xrange(ocount):
                     key, keyoffset = foo(self.outbuf, 1, keyoffset, self.spec.outcoords)
-                    
+                    dec, = struct.unpack('I', key)
                     if key not in self.bdb:
                         start = time.time()                        
                         self.bdb[key] = val
                         bdbcost += time.time()-start                        
                     else:
                         start = time.time()
-                        oldvals = segment_serinputs(val)
-                        newvals = vals
-                        vals = []
-                        for arridx, (oldval, newval) in enumerate(zip(oldvals, newvals)):
-                            vals.append(merge_serialized(oldval, newval, arridx))
+                        oldvals = segment_serinputs(self.bdb[key])
+                        curvals = vals
+                        newvals = []
+                        
+                        for arridx, (oldval, curval) in enumerate(zip(oldvals, curvals)):
+                            newvals.append(merge_serialized(oldval, curval, arridx))
+                            
                         mergecost += time.time() - start
 
                         start = time.time()
-                        self.bdb[key] = ''.join(vals)
+                        self.bdb[key] = ''.join(newvals)
                         bdbcost += time.time()-start
                     
 
             else:
                 key, keyoffset = foo(self.outbuf, ocount, keyoffset, self.spec.outcoords)
-                idxkey = 'b:%d' % self.nbdbitems
-                start = time.time()
-                self.bdb[idxkey] = key                
-                self.bdb[key] = val
-                self.outidx.set(obox, idxkey)
-                self.nbdbitems += 1
-                bdbcost += time.time()-start
+                if key not in self.bdb:
+                    idxkey = 'b:%d' % self.nbdbitems
+                    start = time.time()
+                    self.bdb[idxkey] = key                
+                    self.bdb[key] = val
+                    bdbcost += time.time()-start
+                    start = time.time()
+                    self.outidx.set(obox, self.nbdbitems)
+                    idxcost += time.time()-start
+                    self.nbdbitems += 1
+                else:
+                    start = time.time()
+                    oldvals = segment_serinputs(self.bdb[key])
+                    curvals = vals
+                    newvals = []
+                    for arridx, (oldval, curval) in enumerate(zip(oldvals, curvals)):
+                        curvals.append(merge_serialized(oldval, curval, arridx))
+                    mergecost += time.time() - start
+
+                    start = time.time()
+                    self.bdb[key] = ''.join(curvals)
+                    bdbcost += time.time()-start
+
         
         self.inc_stat('bdbcost', bdbcost)
+        self.inc_stat('idxcost', idxcost)
         self.inc_stat('mergecost', mergecost)        
         # reset the cache
         self.reset_cache()                
@@ -1299,6 +1360,7 @@ class PStore3(DiskStore):
         self.flush()
         self.outbuf = None
         self.inbufs = [None] * self.nargs
+        self.mergebuf = None
         
         super(PStore3, self).close()
         
@@ -1339,7 +1401,7 @@ class IBox(object):
     def re_execute(self, inputs, coords, arridx, outshape, backward=True):
         from runtime import Runtime
         ptype = backward and BReexec or FReexec
-       
+
         pqres = PQSparseResult(outshape)
         reexec = ptype(coords, arridx, pqres)
 
@@ -1349,7 +1411,6 @@ class IBox(object):
         
         for coord in pqres:
             yield coord
-        
 
     @alltoall
     def join(self, left, arridx, backward=True):
@@ -1663,6 +1724,10 @@ class MultiPStore(IPstore):
         if backward:
             return self.bpstore.join(left, arridx, backward=backward)
         return self.fpstore.join(left, arridx, backward=backward)
+
+    def close(self):
+        self.bpstore.close()
+        self.fpstore.close()
     
         
 
