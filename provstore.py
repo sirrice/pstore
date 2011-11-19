@@ -1192,9 +1192,14 @@ class PStore3(DiskStore):
             
             if mode == Spec.KEY:
                 start = time.time()
-                h = str(hash(ret) % 4294967296)
-                key = 'key:%s' % h.rjust(10, '_')
-                self.bdb[key] = ret
+                h = str(hash(ret) % 4294967296).rjust(10, '_')
+                key = 'key:%s' % h
+                refkey = 'ref:%s' % h
+                if key in self.bdb:
+                    self.bdb[refkey] = str(int(self.bdb[refkey])+1)
+                else:
+                    self.bdb[key] = ret
+                    self.bdb[refkey] = '0'
                 ret = '%s%s' % (KEYLEN, key)
                 self.inc_stat('keycost', time.time()-start)
                 return ret, end
@@ -1212,12 +1217,35 @@ class PStore3(DiskStore):
                 newval = self.bdb[newkey]
 
                 newval = merge_serialized(oldval, newval, arridx, Spec.COORD_MANY)
-                h = str(hash(newval) % 4294967296)
-                key = 'key:%s' % h.rjust(10, '_')
-                self.bdb[key] = newval
-                #del self.bdb[oldkey]
-                #del self.bdb[newkey]
+
+                # insert the new key
+                h = str(hash(newval) % 4294967296).rjust(10, '_')
+                key = 'key:%s' % h
+                refkey = 'ref:%s' % h
+                if key in self.bdb:
+                    self.bdb[refkey] = str(int(self.bdb[refkey])+1)                    
+                else:
+                    self.bdb[key] = newval
+                    self.bdb[ref] = '0'
+
+                # update ref counts and garbage collect
+                oldref = 'ref:%s' % oldkey
+                newref = 'ref:%s' % newkey
+                oldrefcount = int(self.bdb[oldref])
+                newrefcount = int(self.bdb[newref])
+                if oldrefcount <= 1:
+                    del self.bdb[oldkey]
+                    del self.bdb[oldref]
+                else:
+                    self.bdb[oldref] = str(oldrefcount - 1)
+                if newrefcount <= 1:
+                    del self.bdb[newkey]
+                    del self.bdb[newref]
+                else:
+                    self.bdb[newref] = str(newrefcount - 1)
+
                 return '%s%s' % (KEYLEN, key)
+
             elif mode == Spec.COORD_MANY:
                 oldn, = struct.unpack('I', old[:4])
                 newn, = struct.unpack('I', new[:4])
