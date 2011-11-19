@@ -37,11 +37,23 @@ ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
 
 #stats = Stats.instance('./results/lsstfull.db.nov.14.2011')
 #stats = Stats.instance('./results/pablostats.db.nov.14.2011')
-stats = Stats.instance('./_output/pablostats.db')
+#stats = Stats.instance('./_output/pablostats.db')
 #stats = Stats.instance('./_output/stats.db')
 #stats = Stats.instance('./_output/lsstfull.db')
 #stats = Stats.instance('./results/lsstfull.db.nov.10.2011')
+dbname = './_output/pablostats.db'
+runmodes = []
+for arg in sys.argv:
+    if '.db' in arg:
+        dbname = arg
+    else:
+        try:
+            runmode = int(arg)
+            runmodes.append(runmode)
+        except:
+            pass
 
+stats = Stats.instance(dbname)
 conn = stats.conn
 cur = conn.cursor()
 
@@ -229,10 +241,13 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     plt.clf()
 
 
-if len(sys.argv) > 1:
-    for runmode in sys.argv[1:]:
-        runmode = int(runmode)
-        get_plot(runmode)
+for runmode in runmodes:
+    get_plot(runmode)
+
+# if len(sys.argv) > 1:
+#     for runmode in sys.argv[1:]:
+#         runmode = int(runmode)
+
 
 #get_plot(1)
 #get_plot(3)

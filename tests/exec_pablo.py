@@ -205,7 +205,7 @@ def create_workflow():
         path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
         qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
         qs.append( [ [(j, i) for i in xrange(10, 15) for j in xrange(5, 42)], runid, path, 'forward' ] )
-        return qs
+
         # path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
         # for i in xrange(5,10):
         #     qs.append( [ [(42, i)], runid, path, 'forward' ] )
@@ -393,7 +393,7 @@ def create_workflow():
 
             return 'opt_%.1f_%.1f' % (disk, runcost)
         
-        return [noop, stat, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
+        return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         #return [noop, stat, query_opt, ptr5, pt3, custom]
 #        return [ptr3]
         return [noop, stat, query_opt, pt3, pt4]
@@ -438,7 +438,7 @@ if __name__ == '__main__':
     fname = '../data/MD_train_set.txt'
     runmode = 1
     bmodel = bdynamic = False    
-
+    dbname = '_output/pablostats.db'
     if len(sys.argv) > 1:
         try:
             runmode = int(sys.argv[1])
@@ -454,12 +454,14 @@ if __name__ == '__main__':
             bmodel = True
         elif arg == 'dynamic':
             bdynamic = True
+        elif '.db' in arg:
+            dbname = arg
 
 
     with file(fname, 'r') as f:
         ds = np.array([l.strip().split('\t') for l in f])[1:,:]
 
-    Stats.instance('_output/pablostats.db')
+    Stats.instance(dbname)
     w, run, run_model, get_strats, get_qs = create_workflow()
 
 
@@ -482,7 +484,7 @@ if __name__ == '__main__':
             Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
-            continue
+
             print runtype, disk
             if bmodel:
                 run_model(ds, runmode, runtype, disk, runcost, eids)
@@ -509,7 +511,6 @@ if __name__ == '__main__':
 
         print "disk\t", sum( [mp.get_disk(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
         print "cost\t", sum( [mp.get_pqcost(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
-        return
         if bmodel:
             run_model(ds, runmode, runtype)
         else:
