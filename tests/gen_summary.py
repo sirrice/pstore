@@ -41,6 +41,14 @@ ALLPATHS = """SELECT pq.rowid, pq.forward, pp.opid
 #stats = Stats.instance('./_output/stats.db')
 #stats = Stats.instance('./_output/lsstfull.db')
 #stats = Stats.instance('./results/lsstfull.db.nov.10.2011')
+
+if len(sys.argv) <= 1:
+    print """python gen_summary.py [ runmode | dbfilename ]*
+
+             dbfilename: default -- ./_output/pablostats.db
+          """
+    exit()
+
 dbname = './_output/pablostats.db'
 runmodes = []
 for arg in sys.argv:
@@ -139,8 +147,8 @@ def get_plot(runmode):
     ymax = max(map(max, table.values()))
 
 
-    draw(ymax * 1.2, ['overhead','disk'], table, labels, 'overhead%d' % runmode, 
-         'X times baseline', plotargs={'yscale':'linear'})
+    draw(ymax * 1.2, 0, ['overhead','disk'], table, labels, 'overhead%d' % runmode, 
+         'X times baseline', 'overhead%d' % runmode, plotargs={'yscale':'linear'})
 
 
     # collect all the paths
@@ -151,6 +159,8 @@ def get_plot(runmode):
 
 
     ymax = 0
+    ymin = 10000000000000000
+    allcosts = []
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
         queries = get_queries(rowid)
         paths = map(tuple, queries.values())
@@ -176,15 +186,27 @@ def get_plot(runmode):
             table[qname].append(cost)
 
             print rowid, d[path], float(cost), path
-
             
-            ymax = max(ymax, cost)
+            allcosts.append(cost)
 
-    #table = dict([('Q%s' % k, v) for k,v in table.items()])
     features = sorted(['%sQ %s' % (path[0][1] and 'F' or 'B', pid) for path, pid in allpaths.items()])
-    #features = sorted(allpaths.values())
-    draw(ymax*1.2, features, table, labels, 'costs%d' % runmode,#'%s_qcosts' % title,
-         'querycost', plotargs={'yscale':'linear'})
+    ymax, ymin = max(allcosts), min(allcosts)
+
+    if ymax / ymin > 100 and False:
+#    if max(allcosts) > np.std(allcosts) * 5 + np.mean(allcosts):
+        yscale = 'log'
+        ymax *= 10
+    else:
+        yscale = 'linear'
+        ymin = 0
+        ymax *= 1.2
+        ymax = min(ymax, 30)
+    plotargs = { 'yscale' : yscale }
+    
+    title = 'Query Cost vs Strategies (scaled %dx)' % runmode
+    ylabel = 'Query Cost (sec)'
+    fname = 'cost%d' % runmode
+    draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs)
     return
     # get strategies
     cur.execute(STRATS, (rowid,))
@@ -195,7 +217,7 @@ def get_plot(runmode):
     for op in strats:
         print '\t%s\t%s' % (op, strats[op])
 
-def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
+def draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs={}):
     # draw the graph
     fontP = FontProperties()
     fontP.set_size(15)
@@ -236,7 +258,7 @@ def draw(ymax, features, table, labels, title, ylabel, plotargs={}):
     ax.set_xticklabels(labels)
     ax.set_title(title)
     ax.grid(True)
-    plt.savefig('./figs/%s.png' % (title), format='png')
+    plt.savefig('./figs/%s.png' % (fname), format='png')
     plt.cla()
     plt.clf()
 
