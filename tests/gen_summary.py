@@ -147,7 +147,7 @@ def get_plot(runmode):
     ymax = max(map(max, table.values()))
 
 
-    draw(ymax * 1.2, 0, ['overhead','disk'], table, labels, 'overhead%d' % runmode, 
+    draw(ymax * 1.2, 0, ['overhead', 'disk'], table, labels, 'overhead%d' % runmode, 
          'X times baseline', 'overhead%d' % runmode, plotargs={'yscale':'linear'})
 
 

@@ -153,9 +153,9 @@ class Stats(object):
             fanin, area, density, oclustsize, nptrs, noutcells, outputsize, wiarea, opcost = self.get_op_stats(eids, op.oid, arridx)
 
             if arridx == 0:
-                cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?)",
+                cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?,?)",
                             (self.eid, runid, op.oid, str(op).strip(), str(strat),
-                             nptrs, oclustsize, noutcells, outputsize, opcost))
+                             nptrs, oclustsize, noutcells, outputsize, opcost, 0))
                 wid = cur.lastrowid
                 cur.execute("insert into pstore_overhead values (?,?,?,?,?,?)",
                             (wid, 0, overhead, 0, disk, 0))

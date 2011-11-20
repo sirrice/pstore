@@ -366,6 +366,9 @@ class StatPStore(IPstore):
         self.noutcells += noutcells
         self.ncalls += 1
 
+        # update the histograms
+        
+
     @instrument
     def write(self, outcoords, *incoords_arr):
         if self.nsampled > 10 and random.random() < 0.9:

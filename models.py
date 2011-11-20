@@ -68,7 +68,7 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
         nentries = 1
         if spec[1] == Spec.KEY:
             a, b = 1.5,  15.9
-            ikey = ( 18 + 4 * (1 + fanin) ) / fanout
+            ikey = ( 18 + 4 * (1 + fanin) + (18+4) ) / fanout
             ptr = ( 18 + 4 )
             nentries = 1 + 1.0 / fanout
         elif spec[1] == Spec.COORD_MANY:
@@ -91,9 +91,10 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
         nentries = 2
         if spec[1] == Spec.KEY:
             a,b = 1.3, 50
-            ikey = ( 18 + 4 * (1 + fanin) ) 
+            ikey = ( 18 + 4 * (1 + fanin) )
+            ikey += (18 + 4) # refcounts
             ptr = 18 + outsize
-            nentries = 3
+            nentries = 4
         elif spec[1] == Spec.COORD_MANY:
             a,b =  2.02,  36.1
             ptr = 4 * (1 + fanin) + outsize
@@ -108,30 +109,7 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
             a,b = 1.75343538, 41.79651412
             ptr = outsize + 4 + payload
 
-    elif spec[0] == Spec.KEY:
-        nptrs = noutput / fanout
-        idx = (4 + 18)
-        okey = ( 18 + 4 * (1 + fanout) )
-        nentries = 3
-        if spec[1] == Spec.KEY:
-            a,b = 2.99000236, -9.01436915
-            ikey = ( 18 + 4 * (1 + fanin) )
-            ptr = 18 + 18
-            nentries += 1
-        elif spec[1] == Spec.BOX:
-            a,b = 2.68105634,  4.94986864
-            ptr = 18 + 8
-        elif spec[1] == Spec.COORD_MANY:
-            a,b = 1.35 , 46.3
-            ptr = ( 18 + (4 + 4*(fanin + 1)) )
-        elif spec[1] == Spec.GRID:
-            a,b = 1.35 , 46.3
-            negs = 4 * ( 2 + 1 + (math.ceil((fanin/density) ** 0.5) ** 2) - fanin)
-            ptr = negs + 18
-        elif spec[1] == Spec.BINARY:
-            a,b = 1.75343538, 41.79651412
-            ptr = 18 + 4 + payload
-
+    a,b = 1.5, 5
     return a,b,okey,ikey,ptr,idx,nentries    
     
 def disk_model_desc(desc, fanin, fanout, density, noutput, payload=2):
@@ -153,15 +131,15 @@ def disk_model_desc(desc, fanin, fanout, density, noutput, payload=2):
         a,b,okey,ikey,ptr,idx,nentries = get_disk_params(spec, fanin, fanout, density, noutput, payload)
     else:
         a,b,okey,ikey,ptr,idx,nentries = get_disk_params(spec, fanout, fanin, density, noutput, payload)
-        # fix things
+        # fix things that divided by fanout in get_disk_params
         if spec == (Spec.COORD_ONE, Spec.KEY):
-            ikey = ( 18 + 4 * (1 + fanin) ) / fanout
-            nentries = 1 + 1.0 / fanout
+            ikey = ( 18 + 4 * (1 + fanout) + (18+4) ) / fanout
+            nentries = 1 + 2.0 / fanout
         if spec[0] != Spec.COORD_ONE:
             nptrs = noutput / fanout
         else:
             nptrs = noutput / fanout * fanin
-        
+
     disk = nptrs * ( ( okey + ikey + ptr + idx ) * a + nentries * b )    
     return idxsize + int( math.ceil(disk/ 4096.0) * 4096 ) 
 
@@ -174,7 +152,7 @@ def write_model(strat, fanin, fanout, density, noutput, opcost):
 
 def write_model_desc(desc, fanin, fanout, density, noutput, opcost):
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
-        return 0.00001
+        return 0.0
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0.0
 
@@ -285,27 +263,51 @@ def overhead_costs(desc, fanin, fanout, density, noutput, nptrs):
     addtocachecosts = nptrs * fanin * accost
 
 
-    # foo() costs
+    # bdb() costs
     if spec[0] == Spec.COORD_ONE:
         foocost = 2.3e-5 * (nptrs + noutput)
     else:
         foocost = 2.3e-5 * (nptrs * 2)
 
-    # collision costs
 
-    return sercost + addtocachecosts + keycost  + foocost
+    # refcount costs
+    refcost = 0
+    if spec[1] == Spec.KEY:
+        if spec[0] == Spec.COORD_ONE:
+            refcost += nptrs * fanout * 0.000014750
+        elif spec[0] == Spec.COORD_MANY:
+            refcost += nptrs * fanout
+    refcost *= 2
+    
+    # collision costs
+    if not desc.backward:
+        if spec[0] == Spec.COORD_ONE:
+            foocost *= 10
+            refcost *= 10
+        
+
+    return sercost + addtocachecosts + keycost  + foocost + refcost
 
 
 
 def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None):
-    scost = 10
+    scost = None
     for bucket in strat.buckets:
         bcost = 0.0
         for desc in bucket.descs:
             cost = sum(forward_model_desc(desc, fanin, fanout, density, noutput,
                                           runtime, nqs, sel, inputarea=inputarea))
             bcost += cost
-        scost = min(scost, bcost)
+        if scost == None:
+            scost = bcost
+        else:
+            scost = min(scost, bcost)
+
+    if scost is None:
+        scost = 10000000
+    if strat != Strat.query():
+        qlog = forward_model(Strat.query(), fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=inputarea)
+        return min(scost, qlog)
     return scost
 
 def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=None, debug=False):
@@ -349,6 +351,9 @@ def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, in
             scost = min(scost, bcost)
     if scost == None:
         scost = 10000000
+    if strat != Strat.query():
+        qlog = backward_model(Strat.query(), fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=inputarea)
+        return min(scost, qlog)
     return scost
 
 
@@ -358,6 +363,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
     if desc.mode == Mode.QUERY:
         return runtime + nqs * sel * 1e-6,0,0,0
     if desc.mode == Mode.FULL_MAPFUNC:
+        return 0,0,0,0
         return nqs * 1e-6,0,0,0
 
     coord_one = 8.51511955261e-6
@@ -388,7 +394,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
     elif spec.payload == Spec.BINARY:
         entrysize += 4 + 8
     else:
-        entrysize += fanin * 4
+        entrysize += (1 + fanin) * 4
         if spec.payload == Spec.KEY:
             entrysize += 18
     a,b =    1.95947313e-10,   3.94434154e-08            
@@ -416,7 +422,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
         elif spec.payload == Spec.BOX:
             extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
         elif spec.payload == Spec.BINARY:
-            extractcost += nmatches * 0.000016
+            extractcost += nmatches * 0.0000016
         else:
             print spec.payload
             raise RuntimeError
@@ -458,7 +464,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
         elif spec.payload == Spec.BOX:
             extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
         elif spec.payload == Spec.BINARY:
-            extractcost += nmatches * 0.000016
+            extractcost += nmatches * 0.0000016
         else:
             raise RuntimeError
 

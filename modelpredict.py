@@ -13,6 +13,7 @@ class ModelPredictor(object):
         self.counts = {}
         self.cache = {}
         self.fprobs = {}
+        self.bprobs = {}
         self.qprobs = {}
         self.fqsizes = {}
         self.bqsizes = {}
@@ -72,7 +73,7 @@ class ModelPredictor(object):
 
     def get_pqcost(self, op, strat, runid = None):
         opcost, prov, disk, qcosts = self.est_cost(op,strat,runid=runid)
-        print "\t", op, '\t', opcost, '\t', strat
+#        print "\t", op, '\t', '%.8f' % qcosts, '\t', strat
         return qcosts
         
 
@@ -87,20 +88,17 @@ class ModelPredictor(object):
             key = (op, arridx)
             weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
             weights.append(weight)
+
         if sum(weights) < 1.0:
             weights = [1.0 / op.wrapper.nargs] * op.wrapper.nargs
 
         for arridx, weight in zip(xrange(op.wrapper.nargs), weights):
             prov, disk, fcost, bcost, opcost = self.est_arr_cost(op, strat, runid, arridx)            
-
+            key = (op, arridx)
             fprob = self.fprobs.get(key,0)
+            bprob = self.bprobs.get(key,0)
             qprob = self.qprobs.get(op, 0)
-            if qprob == 0:
-                fprob = 0.5
-                qprob = min(self.qprobs.values()) / 10
-            
-            #print "FPROB", fprob, qprob
-            qcost = qprob * ((fcost * fprob) + (bcost * (1.0 - fprob)))
+            qcost = qprob * ((fcost * fprob) + (bcost * bprob))
 
             modes = strat.modes()
             for mode in modes:
@@ -137,7 +135,6 @@ class ModelPredictor(object):
         if bqsize is None:
             bqsize = self.bqsizes.get(op, 1)
         boxperc = area / inputsize
-
         prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
         disk = disk_model(strat, fanin, oclustsize, density, noutcells)
         fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
@@ -157,6 +154,8 @@ class ModelPredictor(object):
 
         # probability of forward query
         self.fprobs = dict([(key, val[0] / float(sum(val))) for key, val in self.counts.items()])
+        self.bprobs = dict([(key, val[1] / float(sum(val))) for key, val in self.counts.items()])
+
 
         # probability of querying an op
         total = sum(map(sum, self.counts.values()))
@@ -166,7 +165,6 @@ class ModelPredictor(object):
             qprobs[op] += sum(count)
         self.opqcount = dict(qprobs)
         self.qprobs = dict([(op, v / float(total)) for op, v in qprobs.items()])
-
         
 
     def _proc_fpath(self, ncoords, run_id, path):

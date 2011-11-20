@@ -206,6 +206,7 @@ def create_workflow():
         qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
         qs.append( [ [(j, i) for i in xrange(10, 15) for j in xrange(5, 42)], runid, path, 'forward' ] )
 
+
         # path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
         # for i in xrange(5,10):
         #     qs.append( [ [(42, i)], runid, path, 'forward' ] )
@@ -227,7 +228,7 @@ def create_workflow():
         #
         # backward queries
         #
-
+        qs = []
         # high likelihood query
         path = [ (cm,0), (en, 0), (tr, 0), (ss, 0) ]
         for i in xrange(10):
@@ -392,7 +393,8 @@ def create_workflow():
                 b = Runtime.instance().delete_pstore(op, runid)
 
             return 'opt_%.1f_%.1f' % (disk, runcost)
-        
+
+        return [ptr1, ptr3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         #return [noop, stat, query_opt, ptr5, pt3, custom]
 #        return [ptr3]
@@ -439,15 +441,6 @@ if __name__ == '__main__':
     runmode = 1
     bmodel = bdynamic = False    
     dbname = '_output/pablostats.db'
-    if len(sys.argv) > 1:
-        try:
-            runmode = int(sys.argv[1])
-            fname = '../data/MD_train_set_%dx.txt' % runmode
-        except:
-            pass
-    else:
-        runmode = 1
-
 
     for arg in sys.argv:
         if arg == 'model':
@@ -456,11 +449,17 @@ if __name__ == '__main__':
             bdynamic = True
         elif '.db' in arg:
             dbname = arg
-
+        else:
+            try:
+                runmode = int(arg)
+                if runmode > 1:
+                    fname = '../data/MD_train_set_%dx.txt' % runmode
+            except:
+                pass
 
     with file(fname, 'r') as f:
         ds = np.array([l.strip().split('\t') for l in f])[1:,:]
-
+    print dbname, bmodel, bdynamic, runmode
     Stats.instance(dbname)
     w, run, run_model, get_strats, get_qs = create_workflow()
 
@@ -469,7 +468,7 @@ if __name__ == '__main__':
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
         disksizes = [ 0.1, 1, 10, 100 ]
         #disksizes = [1000000000]
-        runcost = 100000
+        runcost = 1000000000
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
 
         qs = map(list, get_qs())
@@ -484,7 +483,7 @@ if __name__ == '__main__':
             Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
-
+            #continue
             print runtype, disk
             if bmodel:
                 run_model(ds, runmode, runtype, disk, runcost, eids)
@@ -511,6 +510,7 @@ if __name__ == '__main__':
 
         print "disk\t", sum( [mp.get_disk(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
         print "cost\t", sum( [mp.get_pqcost(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
+        #return
         if bmodel:
             run_model(ds, runmode, runtype)
         else:
