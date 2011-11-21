@@ -394,6 +394,7 @@ def create_workflow():
             return 'opt_%.1f_%.1f' % (disk, runcost)
 
 #        return [pt3]
+        return [pt3, opt]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
