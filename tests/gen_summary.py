@@ -69,13 +69,16 @@ cur = conn.cursor()
 def get_exps(runmode):
     # get all the experiments
     cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
-                from exec where runmode = ? and runtype not in ('noop', 'noop_model', 'stats', 'stats_model', 'opt')
+                from exec where runmode = ? and
+                runtype not in ('noop', 'noop_model', 'stats', 'stats_model', 'opt', 'noop_m', 'stats_m')
                 order by rowid, diskconstraint""", (runmode,))
     return cur.fetchall()
 
 def get_labels(exps):
-    replaces = (('KEY', 'REF'), ('PTR_', ''), ('_B', '_b'), ('_F', '_f'))
+    replaces = (('KEY', 'REF'), ('PTR_', '3_'), ('_B', '_b'), ('_F', '_f'), ('PTMAP_', '2_')
+                )
     fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SUBZERO'))
+    
     
     
     labels = []
@@ -88,6 +91,8 @@ def get_labels(exps):
         for k,v in fullreps:
             if k.lower() == label.lower():
                 label = v
+        if label.endswith('_M'):
+            label = label[:-2]
         print label
         labels.append(label)
     return labels
@@ -113,10 +118,15 @@ def get_overhead(exps):
         opcost, disk, idx = cur.fetchone()
 
         print "opcost", notes, opcost, basecost, disk, basedisk, disk/basedisk
-        
-        table['overhead'].append((opcost - basecost) / basecost)
-        table['disk'].append(float(disk) / basedisk)
-        table['idx'].append(float(idx) / basedisk)
+
+        table['overhead'].append(opcost)
+        table['disk'].append(disk / 1048576.0)
+        table['idx'].append(float(idx) / 1048576.0)
+
+
+        # table['overhead'].append((opcost - basecost) / basecost)
+        # table['disk'].append(float(disk) / basedisk)
+        # table['idx'].append(float(idx) / basedisk)
     return table
 
 def get_allpaths(exps):
@@ -147,8 +157,11 @@ def get_plot(runmode):
     ymax = max(map(max, table.values()))
 
 
-    draw(ymax * 1.2, 0, ['overhead', 'disk'], table, labels, 'overhead%d' % runmode, 
-         'X times baseline', 'overhead%d' % runmode, plotargs={'yscale':'linear'})
+    title = "Disk and Runtime Overhead (scaled %dx)" % runmode
+    ylabel = "Disk (MB) and Runtime Overhead (sec)"
+    fname = "overhead%d" % runmode
+    draw(ymax * 1.2, 0, ['overhead', 'disk'], table, labels, title,
+         ylabel, fname, plotargs={'yscale':'linear'})
 
 
     # collect all the paths

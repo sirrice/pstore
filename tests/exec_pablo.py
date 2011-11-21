@@ -138,7 +138,7 @@ def create_workflow():
     w.connect(tr, val, 1)
 
     def run_model(ds, runmode, runtype, disk=0, runcost=0, eids = [-1]):
-        runtype = '%s_model' % runtype
+        runtype = '%s_m' % runtype
         eids = Stats.instance().get_matching_noops(runmode, ds.shape) or [-1]
         Stats.instance().add_exec(ds.shape[0], ds.shape[1],
                                   runmode, runtype, './_output',
@@ -228,7 +228,6 @@ def create_workflow():
         #
         # backward queries
         #
-        qs = []
         # high likelihood query
         path = [ (cm,0), (en, 0), (tr, 0), (ss, 0) ]
         for i in xrange(10):
@@ -321,54 +320,54 @@ def create_workflow():
         def pt1():
             strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTMAP_ONE_KEY_B'
+            return '2_ONE_KEY_B'
 
         def pt2():
             strat = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTMAP_MANY_MANY_B'
+            return '2_MANY_MANY_B'
 
         def pt3():
             buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)]),
                        Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)]) ]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
-            return 'PTMAP_F_B'
+            return '2_F_B'
 
         def pt4():
             buckets = [Bucket([Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)]),
                        Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False)]) ]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
-            return 'PTMAP_F_B'
+            return '2_F_B'
 
 
         def ptr1():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_ONE_KEY_B'
+            return '3_ONE_KEY_B'
 
         def ptr2():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_MANY_MANY_B'
+            return '3_MANY_MANY_B'
 
         def ptr3():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_ONE_KEY_F'
+            return '3_ONE_KEY_F'
 
         def ptr4():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)
             set_ptr_wrapper_opt(strat)
-            return 'PTR_MANY_MANY_F'
+            return '3_MANY_MANY_F'
 
         def ptr5():
             buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)]),
                        Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False)])]
             s = Strat(buckets)
             set_ptr_wrapper_opt(s)
-            return 'PTR_F_B'
+            return '3_F_B'
 
         def custom():
             mkf = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
@@ -394,10 +393,9 @@ def create_workflow():
 
             return 'opt_%.1f_%.1f' % (disk, runcost)
 
-        return [ptr1, ptr3]
+#        return [pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
-        #return [noop, stat, query_opt, ptr5, pt3, custom]
-#        return [ptr3]
+        return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
         return [noop, stat, query_opt, pt1]  
         return [noop, stat, query_opt, pt3]# custom]
@@ -508,9 +506,9 @@ if __name__ == '__main__':
         w.boptimize = bdynamic
         w.mp = mp
 
-        print "disk\t", sum( [mp.get_disk(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
-        print "cost\t", sum( [mp.get_pqcost(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
-        #return
+        # print "disk\t", sum( [mp.get_disk(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
+        # print "cost\t", sum( [mp.get_pqcost(op, strat) for op, strat in Runtime.instance().cur_strats.items()] )
+        # #return
         if bmodel:
             run_model(ds, runmode, runtype)
         else:

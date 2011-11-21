@@ -1,5 +1,6 @@
 import math
 from runtime import *
+import numpy as np
 
 # STRAT_DIFF is hard to predict so I'm punting on it
 
@@ -109,7 +110,7 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
             a,b = 1.75343538, 41.79651412
             ptr = outsize + 4 + payload
 
-    a,b = 1.5, 5
+    a,b = 1.2, 5
     return a,b,okey,ikey,ptr,idx,nentries    
     
 def disk_model_desc(desc, fanin, fanout, density, noutput, payload=2):
@@ -148,16 +149,13 @@ def write_model(strat, fanin, fanout, density, noutput, opcost):
     for bucket in strat.buckets:
         for desc in bucket.descs:
             cost += write_model_desc(desc, fanin, fanout, density, noutput, opcost)
-    return cost
+    return cost / 3.0
 
 def write_model_desc(desc, fanin, fanout, density, noutput, opcost):
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
         return 0.0
     if desc.mode in (Mode.STAT, Mode.NOOP):
         return 0.0
-
-
-        
 
     nptrs = noutput / fanout
     spec = (desc.spec.outcoords, desc.spec.payload)
@@ -200,11 +198,71 @@ def write_model_desc(desc, fanin, fanout, density, noutput, opcost):
             ovcost = overhead_costs(desc, fanin, fanout, density, noutput, nptrs)
         else:
             ovcost = overhead_costs(desc, fanout, fanin, density, noutput / fanout * fanin, nptrs)
-
     return idxcost + diskcost + ovcost
 
 def overhead_costs(desc, fanin, fanout, density, noutput, nptrs):
-    spec = (desc.spec.outcoords, desc.spec.payload)    
+    spec = (desc.spec.outcoords, desc.spec.payload)
+    
+    ## add to cache costs
+    # input/output addtocache costs
+    addtocachecosts = 0.0
+    accost = 0.0
+    if fanout == 1:
+        accost += 5.17e-7
+    else:
+        accost += 1.07e-6
+    
+    if spec[1] == Spec.BOX:
+        if fanin == 1:
+            accost += 5.17e-7
+        else:
+            accost += 1.07e-6
+    elif spec[1] == Spec.GRID:
+        a,b,c = 1.33e-9,   1.96e-06,  -7.19e-10
+        if fanin == 1:
+            accost += 4.57239151001e-05
+        else:
+            accost += a * fanin + b / density + c * fanin / density
+    addtocachecosts = nptrs * fanin * accost
+
+    ## boxes
+    bboxcost = (fanout * 1.054e-06  + 5.6e-7) * nptrs
+
+    
+
+    ## count number of entries
+    if spec[0] == Spec.COORD_ONE:
+        nbdbentries = noutput
+        if spec[1] == Spec.KEY:
+            entrysizes = [4 + 18, 18 + 4 * (fanin+1), 4+4]
+        else:
+            entrysizes = [4 + 4 * (fanin+1)]
+    else:
+        nbdbentries = (noutput / fanout) * 2
+        if spec[1] == Spec.KEY:
+            entrysizes = [4 * (fanout+1) + 4, 4 * (fanout+1) + 18, 18 + (fanin+1), 4+4]
+        else:
+            entrysizes = [4 * (fanout+1) + 4, 4 * (fanout+1) + 4 * (fanin+1), 18 + 4 * (fanin+1), 4+4]
+    if spec[1] == Spec.KEY:
+        nbdbentries += nptrs
+    entrysize = np.mean(entrysizes)
+
+    # cost to add to BDB
+    a,b =  5.68716577e-07 ,  2.80201146e-05
+    bdbcost = ( entrysize * a + b ) * nbdbentries
+    bdbcost += 0 * nbdbentries        
+
+    ## refcount costs
+    refcost = 0
+    if spec[1] == Spec.KEY:
+        if spec[0] == Spec.COORD_ONE:
+            refcost += noutput * 0.000014750
+        elif spec[0] == Spec.COORD_MANY:
+            refcost += nptrs * fanout * 0.000014750
+    refcost *= 2
+    
+    
+    # block serialization and encoding costs
     # serialization costs
     sercost = 0.0
     nser = 0.0
@@ -229,64 +287,19 @@ def overhead_costs(desc, fanin, fanout, density, noutput, nptrs):
         nser += fanout
     nser *= nptrs
     sercost += (1.07e-06 / nser + 4.87e-08) * nser
-
-    # key overheads
-    keycost = 0.0
-    # nkeys = 0.0
-    # if spec[0] == Spec.KEY:
-    #     nkeys += noutput / fanout
-    # if spec[1] == Spec.KEY:
-    #     nkeys += noutput / fanout
-    # keycost = (nkeys) * 0.00012
-
-
-    # input/output addtocache costs
-    addtocachecosts = 0.0
-    accost = 0.0
-    if fanout == 1:
-        accost += 5.17e-7
-    else:
-        accost += 1.07e-6
-
     
-    if spec[1] == Spec.BOX:
-        if fanin == 1:
-            accost += 5.17e-7
-        else:
-            accost += 1.07e-6
-    elif spec[1] == Spec.GRID:
-        a,b,c = 1.33e-9,   1.96e-06,  -7.19e-10
-        if fanin == 1:
-            accost += 4.57239151001e-05
-        else:
-            accost += a * fanin + b / density + c * fanin / density
-    addtocachecosts = nptrs * fanin * accost
 
-
-    # bdb() costs
-    if spec[0] == Spec.COORD_ONE:
-        foocost = 2.3e-5 * (nptrs + noutput)
-    else:
-        foocost = 2.3e-5 * (nptrs * 2)
-
-
-    # refcount costs
-    refcost = 0
-    if spec[1] == Spec.KEY:
-        if spec[0] == Spec.COORD_ONE:
-            refcost += nptrs * fanout * 0.000014750
-        elif spec[0] == Spec.COORD_MANY:
-            refcost += nptrs * fanout
-    refcost *= 2
     
     # collision costs
+    # segmentation costs
+    # deletion costs
+    # merge costs
     if not desc.backward:
         if spec[0] == Spec.COORD_ONE:
-            foocost *= 10
+            bdbcost *= 10
             refcost *= 10
-        
 
-    return sercost + addtocachecosts + keycost  + foocost + refcost
+    return sercost + addtocachecosts + bboxcost + bdbcost + refcost
 
 
 

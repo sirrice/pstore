@@ -155,7 +155,7 @@ class Stats(object):
             if arridx == 0:
                 cur.execute("insert into workflow_run values (?,?,?,?,?,?,?,?,?,?,?)",
                             (self.eid, runid, op.oid, str(op).strip(), str(strat),
-                             nptrs, oclustsize, noutcells, outputsize, opcost, 0))
+                             nptrs, oclustsize, noutcells, outputsize, opcost + overhead, 0))
                 wid = cur.lastrowid
                 cur.execute("insert into pstore_overhead values (?,?,?,?,?,?)",
                             (wid, 0, overhead, 0, disk, 0))

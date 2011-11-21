@@ -33,6 +33,7 @@ class ModelPredictor(object):
             prob = p
         self.probs = dict([(workflow._runid-i, p) for i, p in enumerate(probs)])
 
+        self.debug = True
 
     def _cache_stats(self):
         def f(w):
@@ -110,7 +111,7 @@ class ModelPredictor(object):
             disks.append(disk)
             qcosts.append(weight*qcost)
 
-        opcosts = sum(opcosts)
+        opcosts = np.mean(opcosts)
         provs = sum(provs)
         disks = sum(disks)
         qcosts = sum(qcosts)
@@ -118,6 +119,11 @@ class ModelPredictor(object):
         if runid == None:
             runid = self.workflow._runid
         prob = self.probs.get(runid, 0.0)
+        # if 'KEY' in str(strat) and self.debug:
+        #     print 'RUN', op, strat, prob, opcosts, provs, runid, self.workflow._runid
+        #     import pdb
+        #     pdb.set_trace()
+        #     self.debug = False
 
         if runid == self.workflow._runid:
             return prob * opcosts, prob * provs, disks, prob * qcosts
