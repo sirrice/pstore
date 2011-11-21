@@ -21,8 +21,7 @@ class ModelPredictor(object):
 
         self._cache_stats()
         self._proc_queries()
-        self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
-        self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
+        self._cache_qsizes()
 
 
         cumprobs = zipf(workflow._runid, l)
@@ -34,6 +33,38 @@ class ModelPredictor(object):
         self.probs = dict([(workflow._runid-i, p) for i, p in enumerate(probs)])
 
         self.debug = True
+
+    def _cache_qsizes(self):
+        try:
+            qeids = Stats.instance().get_similar_eids(self.eids[0])
+        except Exception, e:
+            print e
+            self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
+            self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
+            return
+            
+        def f(w):
+            op = w.op
+            for arridx in xrange(w.nargs):
+                key = (op, arridx)
+                # try to get from database
+                fqsize, bqsize = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
+
+                if fqsize is not None:
+                    self.fqsizes[key] = fqsize
+                elif key in self.fqsizes:
+                    self.fqsizes[key] = np.mean(self.fqsizes[key])
+                else:
+                    self.fqsizes[key] = 1
+
+                if bqsize is not None:
+                    self.bqsizes[op] = bqsize
+                elif op in self.bqsizes:
+                    self.bqsizes[op] = np.mean(self.bqsizes[op])
+                else:
+                    self.bqsizes[op] = 1
+        self.workflow.visit(f)
+            
 
     def _cache_stats(self):
         def f(w):

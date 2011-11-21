@@ -373,6 +373,7 @@ class Workflow(object):
         Return: query plan
         """
         optcost = 0.0
+        qsizes = {}
         child = Scan(incoords)
         for op, arridx in path:
            
@@ -385,16 +386,21 @@ class Workflow(object):
                 optcost += time.time() - optstart
                 pstore = Runtime.instance().get_query_pstore(op, run_id, strat)
             else:
+                strat = Runtime.instance().get_strategy(op, run_id)
                 pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
 
+            insize = len(child)
             start = time.time()
             child = pstore.join(child, arridx, backward=False)
             child = DedupQuery(child, shape)
-            wlog.debug( 'Fpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
+            end = time.time()
+            outsize = len(child)
+            wlog.debug( 'Fpathdedup\t%f\t%s\t%d\t%s', end-start, op, len(child), str(pstore.strat) )
+            qsizes[(op, arridx)] = (end-start, strat, insize, outsize)
 
         end = time.time()
-        return DedupQuery(child, shape), optcost
+        return DedupQuery(child, shape), optcost, qsizes
         return NBDedupQuery(q)
 
     def pick_backward_strat(self, qsize, op, arridx, run_id):
@@ -416,6 +422,7 @@ class Workflow(object):
         """
         wlog.debug( 'New Query\t%s', '\t'.join(map(lambda s: s.strip(), map(str, map(lambda p: p[0], path)))))
         optcost = 0.0
+        qsizes = {}
         child = Scan(outcoords)
         for op, arridx in path:
             wop = op.wrapper
@@ -427,19 +434,20 @@ class Workflow(object):
                 optcost += time.time() - optstart
                 pstore = Runtime.instance().get_query_pstore(op, run_id, strat)
             else:
+                strat = Runtime.instance().get_strategy(op, run_id)
                 pstore = Runtime.instance().get_pstore(op, run_id)
             if pstore is None: raise RuntimeError
 
+            insize = len(child)
             start = time.time()
             child = pstore.join(child, arridx, backward=True)
-            try:
-                child = DedupQuery(child, shape)
-                wlog.debug( 'Bpathdedup\t%f\t%s\t%d\t%s', time.time()-start, op, len(child), str(pstore.strat) )
-            except:
-                wlog.error( 'error running back\t%s',  op )
-                raise
-
-        return DedupQuery(child, shape), optcost
+            child = DedupQuery(child, shape)
+            end = time.time()
+            outsize = len(child)
+            wlog.debug( 'Bpathdedup\t%f\t%s\t%d\t%s', end-start, op, len(child), str(pstore.strat) )
+            qsizes[(op, arridx)] = (end-start, strat, insize, outsize)
+            
+        return DedupQuery(child, shape), optcost, qsizes
 
     def rewrite(self, root):
         if isinstance(root, Scan): return root

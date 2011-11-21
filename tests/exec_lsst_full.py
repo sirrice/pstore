@@ -108,9 +108,9 @@ if __name__ == "__main__":
         for inputs, runid, path, direction in queries:
             start = time.time()
             if direction == 'forward':
-                res, optcost = w.forward_path(inputs, runid, path)
+                res, optcost, qsizes = w.forward_path(inputs, runid, path)
             else:
-                res, optcost = w.backward_path(inputs, runid, path)
+                res, optcost, qsizes = w.backward_path(inputs, runid, path)
 
             n = 0
             for coord in res:
@@ -122,6 +122,10 @@ if __name__ == "__main__":
             path_ops = [x[0] for x in path]
             pqid = Stats.instance().add_pq(w._runid-1, path_ops, direction,
                                            [len(inputs)], qcost, n)
+
+            for (op, arridx), (opcost, strat, insize, outsize) in qsizes.items():
+                Stats.instance().add_iq(pqid, op, arridx, strat, direction, insize, outsize, opcost)
+            
             print "results", n, qcost
         return totalcost
             
@@ -509,48 +513,51 @@ if __name__ == "__main__":
     # Stats.instance().finish_exec()
 
 
-    # # many_key everything
-    set_all_strategy(Strat.query(), w)
-    for op in [cr1, cr2, clust, rmcr]:
-        Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
+    # # # many_key everything
+    # set_all_strategy(Strat.query(), w)
+    # for op in [cr1, cr2, clust, rmcr]:
+    #     Runtime.instance().set_strategy(op, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
         
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'many_key', logdir, "lsst_many_key")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-    for maxcount in [-1]:#, 1, 10, 100]:
-        print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
-    Stats.instance().finish_exec()
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'many_key', logdir, "lsst_many_key")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+    # for maxcount in [-1]:#, 1, 10, 100]:
+    #     print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
+    # Stats.instance().finish_exec()
 
 
 
-    # optimal backwards
-    set_all_strategy(Strat.query(), w)
-    FDIFF = Strat([Bucket([ Desc(Mode.FULL_MAPFUNC, Spec.default(), True),
-                            Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True) ])])
+    # # optimal backwards
+    # set_all_strategy(Strat.query(), w)
+    # FDIFF = Strat([Bucket([ Desc(Mode.FULL_MAPFUNC, Spec.default(), True),
+    #                         Desc(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True) ])])
 
-    Runtime.instance().set_strategy(cr1, FDIFF)
-    Runtime.instance().set_strategy(cr2, FDIFF)
-    Runtime.instance().set_strategy(clust, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
-    Runtime.instance().set_strategy(rmcr, FDIFF)
+    # Runtime.instance().set_strategy(cr1, FDIFF)
+    # Runtime.instance().set_strategy(cr2, FDIFF)
+    # Runtime.instance().set_strategy(clust, Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY)))
+    # Runtime.instance().set_strategy(rmcr, FDIFF)
 
-    Stats.instance().add_exec(smallshape[0], smallshape[1],
-                              runmode, 'opt_manual', logdir, "lsst_opt_manual")
-    run_iterations(logdir, runtype, scidata1, scidata2, False)
-    for maxcount in [-1]:#, 1, 10, 100]:
-        print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
+    # Stats.instance().add_exec(smallshape[0], smallshape[1],
+    #                           runmode, 'opt_manual', logdir, "lsst_opt_manual")
+    # run_iterations(logdir, runtype, scidata1, scidata2, False)
+    # for maxcount in [-1]:#, 1, 10, 100]:
+    #     print "query results: %d\t%f" % (maxcount, run_prov_workload(maxcount))
 
-    write_fits(rmbg1.wrapper.get_output(w._runid-1), './generated.fits')
-    write_fits(rmcr.wrapper.get_output(w._runid-1), './generated2.fits')    
-    Stats.instance().finish_exec()
-    exit()
+    # write_fits(rmbg1.wrapper.get_output(w._runid-1), './generated.fits')
+    # write_fits(rmcr.wrapper.get_output(w._runid-1), './generated2.fits')    
+    # Stats.instance().finish_exec()
+    # exit()
     
     
 
 
     if runtype == 'opt':
+        Stats.instance().add_exec(smallshape[0], smallshape[1],
+                                  runmode, 'noop', logdir, "lsst_noop")
         set_all_strategy(Strat.noop(),w)
         run_iterations(logdir, runtype, scidata1, scidata2, False)
         run_id = w._runid-1
+        Stats.instance().finish_exec()            
 
         
         noop_eids = Stats.instance().get_matching_noops(runmode, smallshape)
@@ -569,10 +576,10 @@ if __name__ == "__main__":
 
             # check if we can load a strategy from the current directory
             # assumes TEST + optimize was run already
-            strategies = run_nlp(Stats.instance(), w, mp, disksize, runconstraint)
+            strategies, torm = run_nlp(Stats.instance(), w, mp, disksize, runconstraint)
 
             Stats.instance().add_exec(smallshape[0], smallshape[1],
-                                      runmode, runtype, logdir, "lsst_full",
+                                      runmode, '%s_%d_%d' % (runtype, disksize, runconstraint), logdir, "lsst_full",
                                       disksize, runconstraint, 0)
             Stats.instance().add_opt_mappings(strategies)
 
@@ -582,7 +589,7 @@ if __name__ == "__main__":
                     if s != Strat.full():
                         print op, s
                     Runtime.instance().set_strategy(op, s)
-
+            continue
 
             run_iterations(logdir, runtype, scidata1, scidata2, True)
             Stats.instance().finish_exec()

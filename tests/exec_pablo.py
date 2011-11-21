@@ -391,10 +391,10 @@ def create_workflow():
             for op, runid in torm:
                 b = Runtime.instance().delete_pstore(op, runid)
 
-            return 'opt_%.1f_%.1f' % (disk, runcost)
+            return 'opt_%.1f_%d' % (disk, runcost)
 
 #        return [pt3]
-        return [pt3, opt]
+        return [query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
@@ -412,9 +412,9 @@ def run_qs(w, qs, bmodel):
     for coords, runid, path, direction in qs:
         start = time.time()        
         if direction == 'forward':
-            res,optcost = w.forward_path(coords, runid, path)
+            res,optcost,qsizes = w.forward_path(coords, runid, path)
         elif direction == 'backward':
-            res,optcost = w.backward_path(coords, runid, path)
+            res,optcost,qsizes = w.backward_path(coords, runid, path)
 
         nres = 0
         for coord in res:
@@ -426,7 +426,9 @@ def run_qs(w, qs, bmodel):
         qcost = end - start - optcost
         
         path_ops = [x[0] for x in path]
-        Stats.instance().add_pq(runid, path_ops, direction, [len(coords)], qcost, nres)
+        pqid = Stats.instance().add_pq(runid, path_ops, direction, [len(coords)], qcost, nres)
+        for (op, arridx), (opcost, strat, insize, outsize) in qsizes.items():
+            Stats.instance().add_iq(pqid, op, arridx, strat, direction, insize, outsize, opcost)
 
         ret.append(  (nres, qcost) )
     return ret
@@ -467,7 +469,7 @@ if __name__ == '__main__':
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
         disksizes = [ 0.1, 1, 10, 100 ]
         #disksizes = [1000000000]
-        runcost = 1000000000
+        runcost = 10000000
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
 
         qs = map(list, get_qs())
@@ -482,7 +484,7 @@ if __name__ == '__main__':
             Runtime.instance().restore_pstores() # this resets the experiment
             qs = get_qs()                
             runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
-            #continue
+
             print runtype, disk
             if bmodel:
                 run_model(ds, runmode, runtype, disk, runcost, eids)

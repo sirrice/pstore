@@ -226,10 +226,10 @@ class Runtime(object):
         """
         log.debug( "restore_pstores" )
         for (op, r), s in self.rm_strats.items():
-            log.debug( "restored strat\t%s\t%s" % (op, run_id) )
+            log.debug( "restored strat\t%s\t%s" % (op, r) )
             self.old_strats[op][r] = s
         for (op, r), p in self.rm_pstores.items():
-            log.debug( "restored pstore\t%s\t%s\t%s" % (op, run_id, p) )
+            log.debug( "restored pstore\t%s\t%s\t%s" % (op, r, p) )
             self.pstores[(op,r)] = p
         self.rm_strats = {}
         self.rm_pstores = {}

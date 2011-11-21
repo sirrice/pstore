@@ -266,6 +266,19 @@ class Stats(object):
         slog.info ('get_noops\t%s\t%s\t%s', runmode, shape, eids )
         cur.close()
         return eids
+
+    def get_similar_eids(self, noopeid):
+        cur = self.conn.cursor()
+        q = """select e2.rowid from exec as e1, exec as e2
+        where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
+        and e2.finished = 1 and e2.runtype != 'stats' and e2.runtype != 'noop'; """
+        res = cur.execute(q, (noopeid,))
+        eids = [int(row[0]) for row in res]
+        print eids
+        cur.close()
+        return eids
+        
+
         
     def get_pstore_stats(self, eids):
         eids = '(%s)' % ','.join(map(str,eids))
@@ -336,6 +349,36 @@ class Stats(object):
         ret = [tuple(row) for row in res]
         cur.close()
         return ret
+
+    def get_iq_stat(self, eids, opid, arridx):
+        q = """select avg(ninputs)
+        from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
+        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 1
+        """ % (','.join(map(str, eids)))
+        cur = self.conn.cursor()
+        res = cur.execute(q, (opid, arridx))
+
+        try:
+            fqsize = res.fetchone()[0]
+        except:
+            fqsize = None
+
+
+        q = """select avg(ninputs)
+        from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
+        and pq.eid in (%s) and iq.forward = 0
+        """ % (','.join(map(str, eids)))
+        cur = self.conn.cursor()
+        res = cur.execute(q, (opid,))
+
+        try:
+            bqsize = res.fetchone()[0]
+        except:
+            bqsize = None
+
+        cur.close()
+        return fqsize, bqsize
+        
 
     def get_disk(self, runid, op, strat, default=0.0):
         q = """SELECT disk / 1048576.0
