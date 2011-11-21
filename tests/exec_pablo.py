@@ -352,6 +352,11 @@ def create_workflow():
             set_ptr_wrapper_opt(strat)
             return '3_MANY_MANY_B'
 
+        def ptr25():
+            strat = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True)
+            set_ptr_wrapper_opt(strat)
+            return '3_MANY_GRID_B'
+
         def ptr3():
             strat = Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)
             set_ptr_wrapper_opt(strat)
@@ -394,6 +399,7 @@ def create_workflow():
             return 'opt_%.1f_%d' % (disk, runcost)
 
 #        return [pt3]
+        return [ptr25]
         return [query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]

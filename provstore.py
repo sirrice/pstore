@@ -61,6 +61,8 @@ def gengrid(coords):
     negs: encoded list of coords not in bounding box
     """
     global __grid__, __gcells__
+    if len(coords) == 0:
+        return ((0,0), (0,0)), ((0,0),)
     box = bbox(coords)
     shape = (1+box[1][0]-box[0][0], 1+box[1][1]-box[0][1])
     ncells = reduce(mul, shape)
