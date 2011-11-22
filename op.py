@@ -10,7 +10,7 @@ from stats import Stats
 
 wlog = logging.getLogger('workflow')
 logging.basicConfig()
-wlog.setLevel(logging.DEBUG)
+wlog.setLevel(logging.ERROR)
 
 
 class Wrapper(object):
@@ -491,6 +491,7 @@ class Workflow(object):
         def collect(w):
             #if Mode.FULL_MAPFUNC not in w.op.supported_modes():
             #if  'CreateM' in str(w.op):
+            # ops.add(w.op)
             ops.add(w.op)
         self.visit(collect)
         return list(ops)
@@ -620,7 +621,7 @@ class Op(object):
         return Runtime.instance().get_pstore(self, run_id)
 
     def __str__(self):
-        return ('%s[%d]' % (type(self).__name__, self.oid)).ljust(20)
+        return ('%s[%d]' % (type(self).__name__, self.oid)).ljust(21)
 
     def __eq__(self, op):
         return hash(op) == hash(self)

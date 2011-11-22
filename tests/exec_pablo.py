@@ -145,12 +145,7 @@ def create_workflow():
                                   "notes", disk, runcost, eids[0])
         eid = Stats.instance().eid
 
-        qs = get_qs()
-        qs = map(list, qs)
-        for q in qs:
-            q[0] = len(q[0])
-
-        mp = ModelPredictor(eids, w, qs)
+        mp = ModelPredictor(eids, w)
         for op, s in Runtime.instance().cur_strats.items():
             disk = mp.get_disk(op,s) * 1048576.0
             overhead = mp.get_provcost(op, s)
@@ -161,7 +156,7 @@ def create_workflow():
         qs = map(list, get_qs())
         for q in qs:
             coords, runid, path, direction = q
-            mp = ModelPredictor(eids, w, [[len(coords), runid, path, direction]])
+            mp = ModelPredictor(eids, w)
             qcost = 0.0
             for op, s in Runtime.instance().cur_strats.items():
                 qcost += mp.get_pqcost(op,s)
@@ -176,6 +171,10 @@ def create_workflow():
 
 
     def run(ds, runmode, runtype, disk=0, runcost=0, eids=[-1]):
+        if runtype == 'stats':
+            w.default_strategy(userstrat=Strat.single(Mode.STAT, Spec.default()))
+
+        
         random.seed(0)
         Stats.instance().add_exec(ds.shape[0], ds.shape[1],
                                   runmode, runtype, './_output',
@@ -215,12 +214,12 @@ def create_workflow():
         qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])        
         return qs
 
-    def get_qs(iteridx=5):
+    def get_qs(iteridx=3):
         random.seed(0)
         runid = w._runid-1
         qs = []
 
-        for i in xrange(10):
+        for i in xrange(5):
             if i < iteridx:
                 qs.extend(get_fqs(runid))
             else:
@@ -401,12 +400,8 @@ def create_workflow():
             Runtime.instance().set_strategy(pr , pt)
             return "CUSTOM"
 
-        def opt(ds, qs, eids, runmode, disk, runcost):
-            qs = map(list, qs)
-            for q in qs:
-                q[0] = len(q[0])
-
-            mp = ModelPredictor(eids, w, qs)
+        def opt(ds, eids, runmode, disk, runcost):
+            mp = ModelPredictor(eids, w)
             strategies, torm = run_nlp(Stats.instance(), w, mp, disk,runcost)
             for op in sorted(strategies.keys()):
                 Runtime.instance().set_strategy(op, strategies[op][0])
@@ -419,7 +414,7 @@ def create_workflow():
 
 #        return [pt3]
 #        return [pt3]
-        return [noop, stat, opt]
+        return [noop, query_opt, opt]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
         return [noop, stat, query_opt, pt1]  
@@ -491,31 +486,36 @@ if __name__ == '__main__':
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
-        disksizes = [ 0.1, 1, 10, 100 ]
+        disksizes = [0.1, 1, 10, 100 ]
+        disksizes = [100]
         #disksizes = [1000000000]
         runcost = 10000000
-        eids = Stats.instance().get_matching_noops(runmode, ds.shape)
-
-        qs = map(list, get_qs())
-        for q in qs:
-            q[0] = len(q[0])
-        mp = ModelPredictor(eids, w, qs)
+        
         w.boptimize = bdynamic
-        w.mp = mp
 
         
         for disk in disksizes:
             Runtime.instance().restore_pstores() # this resets the experiment
-            for iteridx in xrange(10):
-                qs = get_qs()                
-                runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+            iteridxs = [0,0,1,3,5,5]
+
+            # gotta get some stats
+            run(ds, runmode, 'stats', disk, runcost, [-1])
+            eids = Stats.instance().get_matching_noops(runmode, ds.shape, disk, runcost)
+            print 'eids', eids
+            
+            
+            for iteridx in iteridxs:
+                runtype = set_strat(ds, eids, runmode, disk * basesize, runcost)
 
                 print runtype, disk
                 if bmodel:
                     run_model(ds, runmode, runtype, disk, runcost, eids)
                 else:
                     run(ds, runmode, runtype, disk, runcost, eids)
-                    for x in run_qs(w, get_qs(), bmodel):
+                    mp = ModelPredictor(eids, w, disk, runcost)
+                    w.mp = mp
+                    
+                    for x in run_qs(w, get_qs(iteridx), bmodel):
                         print x
                     print
         w.boptimize = False
@@ -526,11 +526,7 @@ if __name__ == '__main__':
         print runtype
 
         eids = Stats.instance().get_matching_noops(runmode, ds.shape)
-
-        qs = map(list, get_qs())
-        for q in qs:
-            q[0] = len(q[0])
-        mp = ModelPredictor(eids, w, qs)
+        mp = ModelPredictor(eids, w)
         w.boptimize = bdynamic
         w.mp = mp
 
@@ -543,7 +539,6 @@ if __name__ == '__main__':
             run(ds, runmode, runtype)
             if runtype in ('noop', 'stats'):
                 return
-            return 
             for x in run_qs(w, get_qs(), bmodel):
                 print x
             print

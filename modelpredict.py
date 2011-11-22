@@ -7,9 +7,8 @@ from util import zipf
 
 class ModelPredictor(object):
 
-    def __init__(self, eids, workflow, queries, l = 1.9):
+    def __init__(self, eids, workflow, diskconstraint=None, runconstraint=None, l = 1.9):
         self.workflow = workflow
-        self.queries = queries
         self.counts = {}
         self.cache = {}
         self.fprobs = {}
@@ -23,13 +22,34 @@ class ModelPredictor(object):
         self.qfanins = {}   # backward qs. (op, arridx) -> query fanout.  default = 100000
 
         self._cache_stats()
-        self._cache_fanouts()        
-        self._proc_queries()
+        self._cache_fanouts(diskconstraint, runconstraint)
 
-        self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
-        self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
+        # probability of forward query
+        self.fprobs = dict([(key, val[0] / float(sum(val))) for key, val in self.counts.items() if sum(val) > 0])
+        self.bprobs = dict([(key, val[1] / float(sum(val))) for key, val in self.counts.items() if sum(val) > 0])
 
 
+        # probability of querying an op
+        total = sum(map(sum, self.counts.values()))
+        if total > 0:
+            qprobs = {}
+            for (op,arridx), count in self.counts.items():
+                if op not in qprobs: qprobs[op] = 0
+                qprobs[op] += sum(count)
+            self.opqcount = dict(qprobs)
+            self.qprobs = dict([(op, v / float(total)) for op, v in qprobs.items()])
+        else:
+            self.opqcount = {}
+            self.qprobs = {}
+
+
+        # keys = set(self.fqsizes.keys())
+        # keys.update(self.bqsizes.keys())
+        # for key in keys:
+        #     print "qfanouts\t", key[0], key[1], '\t', str(self.fqsizes.get(key,-1)).ljust(10), \
+        #         '\t', str(self.bqsizes.get(key,-1)).ljust(10), \
+        #         '\t', self.fprobs.get(key, -1), '\t', self.bprobs.get(key, -1)
+        # print 
 
         cumprobs = zipf(workflow._runid, l)
         probs = []
@@ -41,30 +61,48 @@ class ModelPredictor(object):
 
         self.debug = True
 
-    def _wma(self, qsizes, alpha=0.8):
+    def _wma(self, qsizes, alpha=0.8, default=1000000):
         if len(qsizes) == 0:
-            return 1000000
+            return default
         if len(qsizes) == 1:
             return qsizes[0]
         return (1 - alpha) * qsizes[0] + alpha * self._wma(qsizes[1:], alpha)
             
-    def _cache_fanouts(self):
-        try:
-            qeids = Stats.instance().get_similar_eids(self.eids[0])
-        except Exception, e:
+    def _cache_fanouts(self, diskc, runc):
+        qeids = set()
+        for eid in self.eids:
+            qeids.update(Stats.instance().get_similar_eids(eid, diskc, runc))
+        if len(qeids) == 0:
             return
+
             
         def f(w):
             op = w.op
             for arridx in xrange(w.nargs):
                 key = (op, arridx)
                 # try to get from database
-                fqsizes, bqsizes = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
-                fscale = self._wma(fqsizes)
-                bscale = self._wma(bqsizes)
+                fstats, bstats = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
+                fscales, bscales = [stat[1] for stat in fstats], [stat[1] for stat in bstats]
+                fscale = self._wma(fscales)
+                bscale = self._wma(bscales)
                 self.qfanouts[key] = fscale
                 self.qfanins[key] = bscale
+
+                fcounts, bcounts =  [stat[2] for stat in fstats], [stat[2] for stat in bstats]
+                fcount = self._wma(fcounts, default=0)
+                bcount = self._wma(bcounts, default=0)
+                self.counts[key] = [fcount, bcount]
+
+                fsizes, bsizes =  [stat[3] for stat in fstats], [stat[3] for stat in bstats]
+                fsize = self._wma(fsizes, default=100000)
+                bsize = self._wma(bsizes, default=100000)
+                self.fqsizes[key] = fsize
+                self.bqsizes[key] = bsize
+                print '_cache\t',op, arridx, fscale, fsize, fcount, bscale, bsize, bcount
+                
         self.workflow.visit(f)
+
+        
             
 
     def _cache_stats(self):
@@ -85,6 +123,7 @@ class ModelPredictor(object):
                     
                     self.cache[(op,arridx)] = stats
         self.workflow.visit(f)
+        
     
     def get_input_shape(self, op, arridx):
         return self.cache[(op, arridx)][7]
@@ -119,8 +158,11 @@ class ModelPredictor(object):
         weights = []
         for arridx in xrange(op.wrapper.nargs):
             key = (op, arridx)
-            weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
-            weights.append(weight)
+            if self.opqcount.get(op, 1.0) == 0:
+                weights.append(0.0)
+            else:
+                weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
+                weights.append(weight)
 
         if sum(weights) < 1.0:
             weights = [1.0 / op.wrapper.nargs] * op.wrapper.nargs
@@ -136,7 +178,7 @@ class ModelPredictor(object):
             modes = strat.modes()
             for mode in modes:
                 if mode != Mode.QUERY and mode not in op.supported_modes():
-                    qcost = 10.0
+                    qcost = 10000.0
 
             opcosts.append(opcost)
             provs.append(prov)
@@ -169,9 +211,9 @@ class ModelPredictor(object):
         #print "stats",  op, strat, arridx, weight, stats
 
         if fqsize is None:
-            fqsize = self.fqsizes.get(op, 1)
+            fqsize = self.fqsizes.get((op, arridx), 1000000)
         if bqsize is None:
-            bqsize = self.bqsizes.get(op, 1)
+            bqsize = self.bqsizes.get((op, arridx), 1000000)
         boxperc = area / inputsize
         prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
         disk = disk_model(strat, fanin, oclustsize, density, noutcells)
@@ -182,28 +224,7 @@ class ModelPredictor(object):
 
         return prov, disk, fcost, bcost, opcost
 
-    def _proc_queries(self):
-        for query in self.queries:
-            inputs, run_id, path, direction = query
-            if direction == "forward":
-                self._proc_fpath(inputs, run_id, path)
-            else:
-                self._proc_bpath(inputs, run_id, path)
 
-        # probability of forward query
-        self.fprobs = dict([(key, val[0] / float(sum(val))) for key, val in self.counts.items()])
-        self.bprobs = dict([(key, val[1] / float(sum(val))) for key, val in self.counts.items()])
-
-
-        # probability of querying an op
-        total = sum(map(sum, self.counts.values()))
-        qprobs = {}
-        for (op,arridx), count in self.counts.items():
-            if op not in qprobs: qprobs[op] = 0
-            qprobs[op] += sum(count)
-        self.opqcount = dict(qprobs)
-        self.qprobs = dict([(op, v / float(total)) for op, v in qprobs.items()])
-        
 
     def _proc_fpath(self, ncoords, run_id, path):
         """
@@ -245,8 +266,8 @@ class ModelPredictor(object):
         #print "bq", op, arridx, ncoords
 
         if op not in self.bqsizes:
-            self.bqsizes[op] = []
-        self.bqsizes[op].append(ncoords)
+            self.bqsizes[(op, arridx)] = []
+        self.bqsizes[(op, arridx)].append(ncoords)
 
 
         if (op, arridx) not in self.counts:

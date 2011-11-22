@@ -12,7 +12,7 @@ from rtree import index
 
 plog = logging.getLogger('provstore')
 logging.basicConfig()
-plog.setLevel(logging.DEBUG)
+plog.setLevel(logging.ERROR)
 
 
 

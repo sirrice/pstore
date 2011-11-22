@@ -29,6 +29,14 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
         trips.append((r,o,s))
         trips.append((r,o,Strat.query()))
         existingops.append((o,r))
+
+    # for o in ops:
+    #     for s in matstrats:
+    #         if 'ONE_KEY' in str(s) and 'GetNames' in str(o):
+    #             import pdb
+    #             pdb.set_trace()
+    #             mp.get_pqcost(o,s,currun)
+
     
     #trips = [(r,op,s) for r in xrange(1, currun+1) for op in ops for s in matstrats]
 
@@ -38,17 +46,31 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     maxoverhead *= avg_runtime
 
     G1 = []
+    G1dict = {}
     for r,op,s in trips:
+        if op not in G1dict:
+            G1dict[op] = []
         if r == currun:
-            G1.append(mp.get_disk(op, s))
+            disk = mp.get_disk(op, s)
         else:
-            G1.append(stats.get_disk(r,op,s))
+            disk = stats.get_disk(r,op,s)
+        G1.append(disk)
+        if disk > 0:
+            G1dict[op].append(disk)
     G2 = []
+    G2dict = {}
     for r,op,s in trips:
+        if op not in G2dict:
+            G2dict[op] = []
         if r == currun:
-            G2.append(mp.get_provcost(op, s))
+            ov = mp.get_provcost(op, s)
         else:
-            G2.append(0.0)
+            ov = 0.0
+        G2.append(ov)
+        if ov > 0:
+            G2dict[op].append(ov)
+
+
     
     G = matrix([G1, G2]).trans()
     h = matrix([maxdisk, maxoverhead])
@@ -71,24 +93,30 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     A = matrix(A).trans()
     b = matrix([1.0] * (len(ops)+len(existingops)))
 
+    c = []
+    mincs = {}
+    for r,op,s in trips:
+        cost = mp.get_pqcost(op,s,r)
+        c.append(cost)
+        if cost > 0 and op not in mincs:
+            mincs[op] = cost
+        if cost > 0 and cost < mincs[op]:
+            mincs[op] = cost
+    #c = [mp.get_pqcost(op,s,r) for r,op,s in trips]
 
-    c = [mp.get_pqcost(op,s,r) for r,op,s in trips]
-
-    #c = map(lambda cost: cost * 100.0, c)
-    minc = min(cost for cost in c) / 2.0
     # normalize disk and runcost to minc
-    G1p = [g / max(G1) * minc for g in G1]
-    G2p = [g / max(G2) * minc for g in G2]
+    G1p, G2p = [], []
+    for (r,o,s), g1, g2 in zip(trips, G1, G2):
+        G1p.append(g1 / max(G1dict[o]) * mincs[op])
+        G2p.append(g2 / max(G2dict[o]) * mincs[op])
     c = map(sum, zip(c, G1p, G2p))
-
+    cp = list(c)
     d = dict([(t, cost) for cost, t in zip(c, trips)])
     c = matrix(c)
-
-
+    
     nlog.debug("Constraints: %f\t%f" , maxdisk, maxoverhead)
-    for r, op, s in trips:
-        pqcost = mp.get_pqcost(op, s)
-        nlog.debug('%s\t%s\t%f\t%f\t%f\t%f', op, str(s).ljust(25),
+    for (r, op, s), pqcost in zip(trips, G1p):
+        nlog.debug('%s\t%s\t%.9f\t%f\t%f\t%f', op, str(s).ljust(25),
                    pqcost,
                    mp.get_disk(op,s),
                    mp.get_provcost(op, s),

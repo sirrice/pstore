@@ -254,25 +254,38 @@ class Stats(object):
         return iqid
 
 
-    def get_matching_noops(self, runmode, shape):
+    def get_matching_noops(self, runmode, shape, disk=None, runc=None):
         cur = self.conn.cursor()
         print runmode, shape
-        res = cur.execute("""select rowid from exec where runmode = ? and
-                             width = ? and height = ? and finished = 1 and runtype = 'stats'""",
-                          (runmode, shape[0], shape[1]))
+        if disk is None or True:
+            res = cur.execute("""select rowid from exec where runmode = ? and
+            width = ? and height = ? and finished = 1 and runtype = 'stats'""",
+            (runmode, shape[0], shape[1]))
+        else:
+            res = cur.execute("""select rowid from exec where runmode = ? and
+            width = ? and height = ? and finished = 1 and runtype = 'stats' and diskconstraint = ?
+            and runconstraint = ?""",
+            (runmode, shape[0], shape[1], disk, runc))
+
 
         eids = [int(row[0]) for row in res]
-        print eids
         slog.info ('get_noops\t%s\t%s\t%s', runmode, shape, eids )
         cur.close()
         return eids
 
-    def get_similar_eids(self, noopeid):
+    def get_similar_eids(self, noopeid, diskc, runc):
         cur = self.conn.cursor()
-        q = """select e2.rowid from exec as e1, exec as e2
-        where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
-        and e2.finished = 1 and e2.runtype != 'stats' and e2.runtype != 'noop'; """
-        res = cur.execute(q, (noopeid,))
+        if diskc == None or runc == None:
+            q = """select e2.rowid from exec as e1, exec as e2
+            where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
+            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4) ; """
+            res = cur.execute(q, (noopeid,))
+        else:
+            q = """select e2.rowid from exec as e1, exec as e2
+            where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
+            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4)
+            and e2.diskconstraint = ? and e2.runconstraint = ?; """
+            res = cur.execute(q, (noopeid, diskc,  runc))
         eids = [int(row[0]) for row in res]
         print eids
         cur.close()
@@ -351,24 +364,26 @@ class Stats(object):
         return ret
 
     def get_iq_stat(self, eids, opid, arridx):
-        q = """select cast(noutputs as real) / ninputs
+        q = """select eid, avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
         from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
         and iq.arridx = ? and pq.eid in (%s) and iq.forward = 1 and ninputs > 0
+        group by pq.eid
         order by pq.eid desc
         """ % (','.join(map(str, eids)))
         cur = self.conn.cursor()
         res = cur.execute(q, (opid, arridx))
-        fqsizes = [row[0] for row in res]
+        fqsizes = [tuple(row) for row in res]
 
 
-        q = """select cast(noutputs as real) / ninputs
+        q = """select eid, avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
         from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
         and iq.arridx = ? and pq.eid in (%s) and iq.forward = 0 and ninputs > 0
+        group by pq.eid
         order by pq.eid desc""" % (','.join(map(str, eids)))
         cur = self.conn.cursor()
         res = cur.execute(q, (opid, arridx))
 
-        bqsizes = [row[0] for row in res]
+        bqsizes = [tuple(row) for row in res]
 
         cur.close()
         return fqsizes, bqsizes
