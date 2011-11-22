@@ -19,9 +19,16 @@ class ModelPredictor(object):
         self.bqsizes = {}
         self.eids = eids
 
+        self.qfanouts = {}  # forward qs.  (op, arridx) -> query fanout.  default = 100000
+        self.qfanins = {}   # backward qs. (op, arridx) -> query fanout.  default = 100000
+
         self._cache_stats()
+        self._cache_fanouts()        
         self._proc_queries()
-        self._cache_qsizes()
+
+        self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
+        self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
+
 
 
         cumprobs = zipf(workflow._runid, l)
@@ -34,13 +41,17 @@ class ModelPredictor(object):
 
         self.debug = True
 
-    def _cache_qsizes(self):
+    def _wma(self, qsizes, alpha=0.8):
+        if len(qsizes) == 0:
+            return 1000000
+        if len(qsizes) == 1:
+            return qsizes[0]
+        return (1 - alpha) * qsizes[0] + alpha * self._wma(qsizes[1:], alpha)
+            
+    def _cache_fanouts(self):
         try:
             qeids = Stats.instance().get_similar_eids(self.eids[0])
         except Exception, e:
-            print e
-            self.fqsizes = dict([(k,np.mean(v)) for k,v in self.fqsizes.items()])
-            self.bqsizes = dict([(k,np.mean(v)) for k,v in self.bqsizes.items()])
             return
             
         def f(w):
@@ -48,21 +59,11 @@ class ModelPredictor(object):
             for arridx in xrange(w.nargs):
                 key = (op, arridx)
                 # try to get from database
-                fqsize, bqsize = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
-
-                if fqsize is not None:
-                    self.fqsizes[key] = fqsize
-                elif key in self.fqsizes:
-                    self.fqsizes[key] = np.mean(self.fqsizes[key])
-                else:
-                    self.fqsizes[key] = 1
-
-                if bqsize is not None:
-                    self.bqsizes[op] = bqsize
-                elif op in self.bqsizes:
-                    self.bqsizes[op] = np.mean(self.bqsizes[op])
-                else:
-                    self.bqsizes[op] = 1
+                fqsizes, bqsizes = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
+                fscale = self._wma(fqsizes)
+                bscale = self._wma(bqsizes)
+                self.qfanouts[key] = fscale
+                self.qfanins[key] = bscale
         self.workflow.visit(f)
             
 
@@ -232,7 +233,7 @@ class ModelPredictor(object):
                 print child, idx
             raise RuntimeError, ("could not find %s\t%d" % ( path[0][0], path[0][1] ))
 
-        fanout = self.cache.get((op, arridx), (1,1))[3]
+        fanout = self.qfanouts.get((op, arridx), 100000)
         mininputsize = ncoords * fanout
         mininputsize = min(mininputsize, self.get_output_shape(op, arridx))
         
@@ -254,7 +255,7 @@ class ModelPredictor(object):
 
 
         # multiply by fanin
-        fanin = self.cache.get((op,arridx), (1,1))[0]
+        fanin = self.qfanins.get((op, arridx), 100000)
         ncoords *= fanin
         ncoords = min(ncoords, self.get_input_shape(op, arridx))
 

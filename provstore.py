@@ -873,6 +873,8 @@ class PStore2(DiskStore):
         self.reset_cache()
         self.outbuf = None
         self.inbuf = None
+
+        self.memsize = 0
         
 
     def reset_cache(self):
@@ -976,8 +978,11 @@ class PStore2(DiskStore):
         self.incounts.append(len(payload))
         self.inc_stat('incache', time.time()-start)
 
-        if len(self.outcache) > 1000:
+        self.memsize += len(outcoords) * 2 + len(payload)
+
+        if self.memsize > 1000000:
             self.flush()
+            self.memsize = 0
 
     @instrument
     def flush(self):
@@ -1157,6 +1162,7 @@ class PStore3(DiskStore):
             for key, val in self.memdb.iteritems():
                 self.dump(key, *val)
             self.memdb = {}
+            self.memsize = 0
 
     def dump(self, outcoords, *incoords_arr):
         

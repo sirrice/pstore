@@ -351,33 +351,27 @@ class Stats(object):
         return ret
 
     def get_iq_stat(self, eids, opid, arridx):
-        q = """select avg(ninputs)
+        q = """select cast(noutputs as real) / ninputs
         from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
-        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 1
+        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 1 and ninputs > 0
+        order by pq.eid desc
         """ % (','.join(map(str, eids)))
         cur = self.conn.cursor()
         res = cur.execute(q, (opid, arridx))
-
-        try:
-            fqsize = res.fetchone()[0]
-        except:
-            fqsize = None
+        fqsizes = [row[0] for row in res]
 
 
-        q = """select avg(ninputs)
+        q = """select cast(noutputs as real) / ninputs
         from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
-        and pq.eid in (%s) and iq.forward = 0
-        """ % (','.join(map(str, eids)))
+        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 0 and ninputs > 0
+        order by pq.eid desc""" % (','.join(map(str, eids)))
         cur = self.conn.cursor()
-        res = cur.execute(q, (opid,))
+        res = cur.execute(q, (opid, arridx))
 
-        try:
-            bqsize = res.fetchone()[0]
-        except:
-            bqsize = None
+        bqsizes = [row[0] for row in res]
 
         cur.close()
-        return fqsize, bqsize
+        return fqsizes, bqsizes
         
 
     def get_disk(self, runid, op, strat, default=0.0):

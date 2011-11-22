@@ -191,20 +191,42 @@ def create_workflow():
 
         Stats.instance().finish_exec()
 
-    def get_qs():
+
+    def get_fqs(runid):
+        qs = []
+        # bad hospital query
+        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0)]
+        qs.append( [ [(42, random.randint(1, 10))], runid, path, 'forward' ] )
+
+        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
+        #qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
+        minv = random.randint(5, 32)
+        qs.append( [ [(j, i) for i in xrange(10, 15) for j in xrange(minv, minv + 10)], runid, path, 'forward' ] )
+        return qs
+
+    def get_bqs(runid):
+        qs = []
+        # high likelihood query
+        path = [ (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])
+
+        # Relapse query
+        path = [ (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
+        qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])        
+        return qs
+
+    def get_qs(iteridx=5):
         random.seed(0)
         runid = w._runid-1
         qs = []
 
+        for i in xrange(10):
+            if i < iteridx:
+                qs.extend(get_fqs(runid))
+            else:
+                qs.extend(get_bqs(runid))
+
         # === Forward Queries ===
-        # bad hospital query
-        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0)]
-        for i in xrange(5,10):
-            qs.append( [ [(42, i)], runid, path, 'forward' ] )
-        
-        path = [ (ss, 0), (tr, 0), (en, 0), (cm, 0), (pr, 0), (cum, 0), (prob, 0), (klass, 0), (val, 0) ]
-        qs.append( [ [(j, i) for i in xrange(10, 15) for j in (5, 42)], runid, path, 'forward' ] )
-        qs.append( [ [(j, i) for i in xrange(10, 15) for j in xrange(5, 42)], runid, path, 'forward' ] )
 
 
         # path = [ (ss, 0), (tr, 0), (cm, 1), (pr, 0), (cum, 0), (prob, 0), (klass, 0) ]#, (val, 0) ]
@@ -228,16 +250,6 @@ def create_workflow():
         #
         # backward queries
         #
-        # high likelihood query
-        path = [ (cm,0), (en, 0), (tr, 0), (ss, 0) ]
-        for i in xrange(10):
-            qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])
-
-        # Relapse query
-        path = [ (klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0), (en, 0), (tr, 0), (ss, 0) ]
-        for i in xrange(10):
-            qs.append([ [(0, random.randint(0, 50))], runid, path, 'backward' ])        
-            
         
 
         # path = [(klass, 0), (prob, 0), (cum, 0), (pr, 0), (cm,0) ]
@@ -406,9 +418,8 @@ def create_workflow():
             return 'opt_%.1f_%d' % (disk, runcost)
 
 #        return [pt3]
-        return [ptr6]
-        return [query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
-        return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
+#        return [pt3]
+        return [noop, stat, opt]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
         return [noop, stat, query_opt, pt1]  
@@ -495,17 +506,18 @@ if __name__ == '__main__':
         
         for disk in disksizes:
             Runtime.instance().restore_pstores() # this resets the experiment
-            qs = get_qs()                
-            runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
+            for iteridx in xrange(10):
+                qs = get_qs()                
+                runtype = set_strat(ds, qs, eids, runmode, disk * basesize, runcost)
 
-            print runtype, disk
-            if bmodel:
-                run_model(ds, runmode, runtype, disk, runcost, eids)
-            else:
-                run(ds, runmode, runtype, disk, runcost, eids)
-                for x in run_qs(w, get_qs(), bmodel):
-                    print x
-                print
+                print runtype, disk
+                if bmodel:
+                    run_model(ds, runmode, runtype, disk, runcost, eids)
+                else:
+                    run(ds, runmode, runtype, disk, runcost, eids)
+                    for x in run_qs(w, get_qs(), bmodel):
+                        print x
+                    print
         w.boptimize = False
         w.mp = None
 
@@ -531,6 +543,7 @@ if __name__ == '__main__':
             run(ds, runmode, runtype)
             if runtype in ('noop', 'stats'):
                 return
+            return 
             for x in run_qs(w, get_qs(), bmodel):
                 print x
             print
