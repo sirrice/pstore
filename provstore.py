@@ -6,7 +6,7 @@ from ctypes import create_string_buffer
 
 from strat import *
 from queryresult import *
-from util import subarray
+from util import subarray, get_db
 from rtree import index
 
 
@@ -834,9 +834,9 @@ class DiskStore(IPstore):
     def open(self, new=False):
         if self.bdb != None: return
         if new:
-            self.bdb = bsddb.hashopen(self.fname, 'n')
+            self.bdb = get_db(self.fname, new=True, fsync=False)
         else:
-            self.bdb = bsddb.hashopen(self.fname)
+            self.bdb = get_db(self.fname, new=False, fsync=False)
         self.outidx.open(new=new)
 
     @instrument
@@ -1063,6 +1063,10 @@ class PStore3(DiskStore):
         self.outbuf = None
         self.inbufs = [None] * self.nargs
         self.mergebuf = None
+
+
+        self.memdb = {}
+        self.memsize = 0
         
 
     def reset_cache(self):
@@ -1126,6 +1130,36 @@ class PStore3(DiskStore):
         
     @instrument
     def write(self, outcoords, *incoords_arr):
+        minus, plus = 0,0        
+        if self.spec.outcoords == Spec.COORD_ONE:
+
+            for outcoord in outcoords:
+                outcoord = (outcoord,)
+                if outcoord not in self.memdb:
+                    self.memdb[outcoord] = [set() for i in xrange(self.nargs)]
+                    plus += 1
+                for s, incoords in zip(self.memdb[outcoord], incoords_arr):
+                    minus += len(s)
+                    s.update(incoords)
+                    plus += len(s)
+        else:
+            outcoords = tuple(outcoords)
+            if outcoords not in self.memdb:
+                self.memdb[outcoords] = [set() for i in xrange(self.nargs)]
+                plus += len(outcoords)
+            for s, incoords in zip(self.memdb[outcoords], incoords_arr):
+                minus += len(s)
+                s.update(incoords)
+                plus += len(s)
+        self.memsize = self.memsize - minus + plus
+
+        if self.memsize > 500000:
+            for key, val in self.memdb.iteritems():
+                self.dump(key, *val)
+            self.memdb = {}
+
+    def dump(self, outcoords, *incoords_arr):
+        
         #self.write_old(outcoords, *incoords_arr)
         #self.update_stats(outcoords, *incoords_arr)
         if self.outcache is None:
@@ -1141,7 +1175,7 @@ class PStore3(DiskStore):
             self.add_to_cache(cache, counts, incoords, self.spec.payload)
         self.inc_stat('incache', time.time() - start)
 
-        if min(map(len,self.incache), len(self.outcache)) >  10000:
+        if sum(map(len,self.incache)) + len(self.outcache) > 1000000:
             self.flush()
 
     @instrument
@@ -1409,11 +1443,15 @@ class PStore3(DiskStore):
 
 
     def close(self):
+        if self.memdb:
+            for key, val in self.memdb.iteritems():
+                self.dump(key, *val)
+        self.memdb = None
         self.flush()
         self.outbuf = None
         self.inbufs = [None] * self.nargs
         self.mergebuf = None
-        
+        print "Closing", self.op, '\t', len(self.bdb), " entries"
         super(PStore3, self).close()
         
 
@@ -1735,12 +1773,14 @@ class MultiPStore(IPstore):
         self.fpstore = fpstore
         self.pt_stores = []
         self.ptr_stores = []
+        self.pstores = []
 
         for pstore in [bpstore, fpstore]:
             if pstore.uses_mode(Mode.PT_MAPFUNC):
                 self.pt_stores.append(pstore)
             if pstore.uses_mode(Mode.PTR):
                 self.ptr_stores.append(pstore)
+            self.pstores.append(pstore)
 
     def uses_mode(self, mode):
         return self.bpstore.uses_mode(mode) or self.fpstore.uses_mode(mode)

@@ -116,10 +116,11 @@ class Wrapper(object):
 
         # calculate runtime and provenance overheads
         pstore.close()
-        if isinstance(pstore, PStore3):
+
+        if pstore.get_stat('write') > 0:
             for f in ('outcache', 'incache', 'serin', 'serout', 'mergcost', 'bdbcost',
                       'keycost', 'idxcost', 'write', 'flush'):
-                print "%s\t%f"%(f, pstore.get_stat(f))
+                wlog.debug( "%s\t%f", f, pstore.get_stat(f) )
 
         # store outputs
         outputid = ArrayStore.instance().add(output)

@@ -374,6 +374,13 @@ def create_workflow():
             set_ptr_wrapper_opt(s)
             return '3_F_B'
 
+        def ptr6():
+            buckets = [Bucket([Desc(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True)]),
+                       Bucket([Desc(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False)])]
+            s = Strat(buckets)
+            set_ptr_wrapper_opt(s)
+            return '3_F_B_2'
+
         def custom():
             mkf = Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False)
             pt = Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True)
@@ -399,7 +406,7 @@ def create_workflow():
             return 'opt_%.1f_%d' % (disk, runcost)
 
 #        return [pt3]
-        return [ptr25]
+        return [ptr6]
         return [query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]

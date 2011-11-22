@@ -1,6 +1,26 @@
 import numpy, os, random, math
 from operator import mul
 from scipy import ndimage
+import bsddb3
+
+def get_db(fname, new=False, fsync=False):
+    env = bsddb3.db.DBEnv()
+    if fsync:
+        env.set_flags(bsddb3.db.DB_TXN_NOSYNC, 0)
+    else:
+        env.set_flags(bsddb3.db.DB_TXN_NOSYNC, 1)
+    env.set_flags(bsddb3.db.DB_NOLOCKING, 1)
+    env.set_flags(bsddb3.db.DB_AUTO_COMMIT, 0)
+    env.open('.', bsddb3.db.DB_PRIVATE | bsddb3.db.DB_CREATE | bsddb3.db.DB_INIT_MPOOL)
+    db = bsddb3.db.DB(env)
+    if new and fname is not None and os.path.isfile(fname):
+        os.unlink(fname)
+    db.open(fname,
+            dbtype=bsddb3.db.DB_HASH,
+            flags=bsddb3.db.DB_CREATE,
+            mode=0666)
+    return db
+
 
 
 def subarray(arr, coords):
