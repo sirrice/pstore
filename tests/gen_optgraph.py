@@ -80,6 +80,7 @@ def get_qlogcosts(runmode):
     cur.execute("select rowid from exec where runmode = ? and runtype = 'q_opt'", (runmode,))
     eids = [row[0] for row in cur.fetchall()]
     fcosts, bcosts = get_qcosts(eids)
+    print eids
     cur.execute("select sum(opcost) from workflow_run where eid in (%s)" % ','.join(map(str, eids)))
     basecost = cur.fetchone()[0] / float(len(eids))
     return np.mean(fcosts), np.mean(bcosts),  basecost

@@ -17,7 +17,7 @@ OPCOST = """SELECT sum(wr.opcost)
 FROM workflow_run as wr, exec as e1, exec as e2
 WHERE e1.rowid = wr.eid and e1.runtype = 'noop' and
       strat != 's:Func' and e2.rowid = ? and e1.runmode = e2.runmode;"""
-NORMDISK = """select sum(wi.area) * 8.00002
+NORMDISK = """select sum(wi.area) * 8.00002 * 2
 FROM workflow_inputs as wi, workflow_run as wr
 WHERE wi.wid = wr.rowid and wr.eid = ?"""
 NORMDISK = """select width * height * 8.00002
@@ -117,7 +117,7 @@ def get_overhead(exps):
         cur.execute(OVERHEAD, (rowid,))
         opcost, disk, idx = cur.fetchone()
 
-        print "opcost", notes, opcost, basecost, disk, basedisk, disk/basedisk
+        print "opcost", notes, opcost, basecost, opcost/basecost, disk, basedisk, disk/basedisk
 
         table['overhead'].append(opcost)
         table['disk'].append(disk / 1048576.0)
