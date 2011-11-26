@@ -3,6 +3,12 @@ from models import *
 from stats import *
 from operator import mul
 from util import zipf
+import logging
+
+mplog = logging.getLogger('mpredict')
+logging.basicConfig()
+mplog.setLevel(logging.ERROR)
+
 
 
 class ModelPredictor(object):
@@ -36,12 +42,12 @@ class ModelPredictor(object):
         keys = set(self.fqsizes.keys())
         keys.update(self.bqsizes.keys())
         for key in keys:
-            print "qfanouts\t", key[0], key[1], '\t', \
-                '%s\t%s\t%.3f\t%.3f' % (str(self.fqsizes.get(key,-1)).ljust(10),
-                                        str(self.bqsizes.get(key,-1)).ljust(10),
-                                        self.fprobs.get(key, -1),
-                                        self.bprobs.get(key, -1))
-        print 
+            mplog.debug( "qfanouts\t%s\t%s\t%s", key[0], key[1],
+                         '%s\t%s\t%.3f\t%.3f' % (str(self.fqsizes.get(key,-1)).ljust(10),
+                                                 str(self.bqsizes.get(key,-1)).ljust(10),
+                                                 self.fprobs.get(key, -1),
+                                                 self.bprobs.get(key, -1)))
+        mplog.debug('\n')
 
         cumprobs = zipf(workflow._runid, l)
         probs = []
@@ -76,9 +82,6 @@ class ModelPredictor(object):
             for arridx in xrange(w.nargs):
                 key = (op, arridx)
                 fstats, bstats = Stats.instance().get_iq_stat(qeids, op.oid, arridx)
-                # if 'Extract' in str(op) and 0 == arridx:
-                #     print "EXTRACT\t", map(lambda s: s[1], fstats)
-                #     print "EXTRACT\t", map(lambda s: s[1], bstats)
                 allfstats.append(fstats)
                 allbstats.append(bstats)
                 keys.append(key)
@@ -117,30 +120,7 @@ class ModelPredictor(object):
             self.bprobs[key] = bprob
             self.qprobs[key] = qprob
             self.opqcount[key] = count
-            # if 'Extract' in str(key[0]) and 0 == key[1]:
-            #     print "EXTRACT\t",fprobs
-            #     print "EXTRACT\t",bprobs
-            #     print "EXTRACT\t",qprobs
-            #     print "EXTRACT\t", counts
-                
-                
-        # # probability of forward query
-        # self.fprobs = dict([(key, val[0] / float(sum(val))) for key, val in self.counts.items() if sum(val) > 0])
-        # self.bprobs = dict([(key, val[1] / float(sum(val))) for key, val in self.counts.items() if sum(val) > 0])
 
-
-        # # probability of querying an op
-        # total = sum(map(sum, self.counts.values()))
-        # if total > 0:
-        #     qprobs = {}
-        #     for (op,arridx), count in self.counts.items():
-        #         if op not in qprobs: qprobs[op] = 0
-        #         qprobs[op] += sum(count)
-        #     self.opqcount = dict(qprobs)
-        #     self.qprobs = dict([(op, v / float(total)) for op, v in qprobs.items()])
-        # else:
-        #     self.opqcount = {}
-        #     self.qprobs = {}
         
             
     def _cache_fanouts(self, qeids, diskc, runc):
@@ -167,7 +147,6 @@ class ModelPredictor(object):
                 bsize = self._wma(bsizes, default=100000)
                 self.fqsizes[key] = fsize
                 self.bqsizes[key] = bsize
-#                print '_cache\t',op, arridx, fscale, fsize, fcount, bscale, bsize, bcount
                 
         self.workflow.visit(f)
 
@@ -227,18 +206,6 @@ class ModelPredictor(object):
         disks = []
         qcosts = []
 
-        # weights = []
-        # for arridx in xrange(op.wrapper.nargs):
-        #     key = (op, arridx)
-        #     if self.opqcount.get(op, 1.0) == 0:
-        #         weights.append(0.0)
-        #     else:
-        #         weight = sum(self.counts.get(key,[0])) / float(self.opqcount.get(op,1.0))
-        #         weights.append(weight)
-
-        # if sum(weights) < 1.0:
-        #     weights = [1.0 / op.wrapper.nargs] * op.wrapper.nargs
-
         for arridx in xrange(op.wrapper.nargs):
             prov, disk, fcost, bcost, opcost = self.est_arr_cost(op, strat, runid, arridx)            
             key = (op, arridx)
@@ -265,11 +232,6 @@ class ModelPredictor(object):
         if runid == None:
             runid = self.workflow._runid
         prob = self.probs.get(runid, 0.0)
-        # if 'KEY' in str(strat) and self.debug:
-        #     print 'RUN', op, strat, prob, opcosts, provs, runid, self.workflow._runid
-        #     import pdb
-        #     pdb.set_trace()
-        #     self.debug = False
 
         return opcosts, provs, disks, qcosts
 

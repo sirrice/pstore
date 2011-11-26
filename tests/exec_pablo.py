@@ -487,8 +487,8 @@ if __name__ == '__main__':
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
-        disksizes = [1,2,5,10,50,100]
-        disksizes = [100]
+        disksizes = [5,10,50,100]
+        disksizes = [15]
         runcost = 10000000
         
         w.boptimize = bdynamic
@@ -500,7 +500,7 @@ if __name__ == '__main__':
             #iteridxs = [5,5,5,5]
 
             # gotta get some stats
-            #run(ds, runmode, 'stats', disk, runcost, [-1])
+            run(ds, runmode, 'stats', disk, runcost, [-1])
             eids = Stats.instance().get_matching_noops(runmode, ds.shape, disk, runcost)
             print 'eids', eids
             
@@ -514,6 +514,9 @@ if __name__ == '__main__':
                     run_model(ds, runmode, runtype, disk, runcost, eids)
                 else:
                     run(ds, runmode, runtype, disk, runcost, eids)
+                    totaldisk = Runtime.instance().get_total_disk()
+                    Stats.instance().add_exec_stats(totaldisk)
+                    
                     mp = ModelPredictor(eids, w, disk, runcost)
                     w.mp = mp
                     

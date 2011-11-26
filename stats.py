@@ -43,51 +43,53 @@ class Stats(object):
 
 
     def setup(self):
+        queries = ["""create table exec(id integer primary key autoincrement, 
+              time text, width int, height int,  
+              runmode int, runtype varchar(20), logdir varchar(128), 
+              finished int, notes text, 
+              diskconstraint float, runconstraint float, 
+              modelparamseid int references exec(id))""",
+              """create table exec_stats(eid int references exec(id),
+                 disk int)""",
+        """create table opt_mappings (eid int references exec(id), 
+                       opid int, op varchar(20), strat varchar(20))""",
+
+                   # there are three variables
+                   # oclustsize: the size of an output cluster (for pwrite_bulk)
+                   # noutcells:  the number of output cells that have provenance attached
+                   # outputsize: the total # cells in output array
+                   # outputdisk: the total on disk size of output array
+        """create table workflow_run (eid int references exec(id), 
+                 runid int, opid int, op varchar(20),
+                 strat varchar(20), nptrs int,
+                 oclustsize int, noutcells int, outputsize int, opcost float, outputdisk int)""",
+        """create table workflow_inputs (wid int references workflow_run(rowid),
+                 arridx int,  area int)""",
+
+        """create table pstore_overhead (wid int references workflow_run(rowid), 
+                    save float, overhead float, serialize float, disk float, idx float)""",
+        """create table pstore_stats (wid int references workflow_run(rowid),
+                 arridx int, fanin float, area float, density float)""",
+
+        """create table pq (eid int references exec(id), runid int,
+                 forward int, cost float, maxres int)""",
+        """create table pq_inputs (pqid int references pq(rowid),
+                 arridx, ncells)""",
+        """create table pq_path (pqid int references pq(rowid), idx int,
+                  opid int, op varchar(128))""",
+        """create table iq (pqid int references pq(rowid),
+                            opid int, op varchar(128), arridx int, strat varchar(20),
+                            noutputs int, ninputs int, forward int, cost float)"""
+                   ]
 
         cur = self.conn.cursor()
-        try:
-            queries = ["""create table exec(id integer primary key autoincrement, 
-                  time text, width int, height int,  
-                  runmode int, runtype varchar(20), logdir varchar(128), 
-                  finished int, notes text, 
-                  diskconstraint float, runconstraint float, 
-                  modelparamseid int references exec(id))""",
-            """create table opt_mappings (eid int references exec(id), 
-                           opid int, op varchar(20), strat varchar(20))""",
-                       
-                       # there are three variables
-                       # oclustsize: the size of an output cluster (for pwrite_bulk)
-                       # noutcells:  the number of output cells that have provenance attached
-                       # outputsize: the total # cells in output array
-                       # outputdisk: the total on disk size of output array
-            """create table workflow_run (eid int references exec(id), 
-                     runid int, opid int, op varchar(20),
-                     strat varchar(20), nptrs int,
-                     oclustsize int, noutcells int, outputsize int, opcost float, outputdisk int)""",
-            """create table workflow_inputs (wid int references workflow_run(rowid),
-                     arridx int,  area int)""",
-
-            """create table pstore_overhead (wid int references workflow_run(rowid), 
-                        save float, overhead float, serialize float, disk float, idx float)""",
-            """create table pstore_stats (wid int references workflow_run(rowid),
-                     arridx int, fanin float, area float, density float)""",
-
-            """create table pq (eid int references exec(id), runid int,
-                     forward int, cost float, maxres int)""",
-            """create table pq_inputs (pqid int references pq(rowid),
-                     arridx, ncells)""",
-            """create table pq_path (pqid int references pq(rowid), idx int,
-                      opid int, op varchar(128))""",
-            """create table iq (pqid int references pq(rowid),
-                                opid int, op varchar(128), arridx int, strat varchar(20),
-                                noutputs int, ninputs int, forward int, cost float)"""
-                       ]
-            for q in queries:
+        for q in queries:
+            try:
                 cur.execute(q)            
-            self.conn.commit()            
-        except Exception, err:
-            slog.error( err )
-            self.conn.rollback()
+                self.conn.commit()
+            except Exception, err:
+                slog.error( err )
+                self.conn.rollback()
         cur.close()
         
 
@@ -112,6 +114,8 @@ class Stats(object):
         self.eid = cur.lastrowid
         self.conn.commit()
         cur.close()
+
+    
 
     def add_opt_mappings(self, strategies):
         cur = self.conn.cursor()
@@ -168,7 +172,11 @@ class Stats(object):
         cur.close()
         return wid
 
-            
+    def add_exec_stats(self, disk):
+        cur = self.conn.cursor()
+        cur.execute("insert into exec_stats values (?,?) ", (self.eid, disk))
+        self.conn.commit()
+        cur.close()
         
     
     def add_wrun(self, runid, op, cost, inputs, output, outputdisk, pstore):
@@ -290,7 +298,7 @@ class Stats(object):
             where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
             and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4) and e2.finished = 1
             and e2.diskconstraint = ? and e2.runconstraint = ?; """
-            print "SimilarEIDS\t", noopeid, diskc, runc
+            slog.debug( "SimilarEIDS\t%d\t%f\t%f", noopeid, diskc, runc)
             res = cur.execute(q, (noopeid, diskc,  runc))
         eids = [int(row[0]) for row in res]
 

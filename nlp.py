@@ -9,7 +9,7 @@ from cvxopt import glpk
 
 nlog = logging.getLogger('nlp')
 logging.basicConfig()
-nlog.setLevel(logging.DEBUG)
+nlog.setLevel(logging.INFO)
 
 
 
