@@ -215,7 +215,7 @@ def create_workflow():
         return qs
 
     def get_qs(iteridx=3):
-        random.seed(0)
+        random.seed(iteridx)
         runid = w._runid-1
         qs = []
 
@@ -414,6 +414,7 @@ def create_workflow():
 
 #        return [pt3]
 #        return [pt3]
+        return [opt]
         return [noop, query_opt, opt]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
@@ -486,10 +487,8 @@ if __name__ == '__main__':
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
-        disksizes = [0.1, 1, 10, 100 ]
-        disksizes = [1, 2, 5, 10, 100]
         disksizes = [1,2,5,10,50,100]
-        #disksizes = [1000000000]
+        disksizes = [100]
         runcost = 10000000
         
         w.boptimize = bdynamic
@@ -498,9 +497,10 @@ if __name__ == '__main__':
         for disk in disksizes:
             Runtime.instance().restore_pstores() # this resets the experiment
             iteridxs = [0,0,1,3,5,5,5,5,5,5]
+            #iteridxs = [5,5,5,5]
 
             # gotta get some stats
-            run(ds, runmode, 'stats', disk, runcost, [-1])
+            #run(ds, runmode, 'stats', disk, runcost, [-1])
             eids = Stats.instance().get_matching_noops(runmode, ds.shape, disk, runcost)
             print 'eids', eids
             

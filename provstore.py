@@ -1529,7 +1529,7 @@ class IBox(object):
                 matches = in_box
             else:
                 pred = lambda obj: super(IBox,self).extract_outcells(obj)
-                getkey = lambda item: self.bdb[item.object]
+                getkey = lambda key: self.bdb[key]
                 matches = lambda coord, outcoords: coord in outcoords
 
             bigboxes = [[] for i in xrange(self.nargs)]

@@ -53,7 +53,7 @@ class ModelPredictor(object):
 
         self.debug = True
 
-    def _wma(self, qsizes, alpha=0.1, default=1000000):
+    def _wma(self, qsizes, alpha=0, default=1000000):
         if len(qsizes) == 0:
             return default
         if qsizes[0] is None:
@@ -65,7 +65,8 @@ class ModelPredictor(object):
 
     def _calc_probs(self, qeids, diskc, runc):
         qeids = sorted(list(qeids), reverse=True)
-        qeids.remove(self.workflow._runid-1)
+        if self.workflow._runid-1 in qeids:
+            qeids.remove(self.workflow._runid-1)
         keys = []
         allfstats = []
         allbstats = []
@@ -243,7 +244,7 @@ class ModelPredictor(object):
             key = (op, arridx)
             fprob = self.fprobs.get(key,0)
             bprob = self.bprobs.get(key,0)
-            qprob = self.qprobs.get(key, 0)
+            qprob = self.qprobs.get(key,0)
             qcost = qprob * ((fcost * fprob) + (bcost * bprob))
 
             modes = strat.modes()

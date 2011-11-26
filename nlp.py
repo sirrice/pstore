@@ -30,16 +30,6 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
         trips.append((r,o,Strat.query()))
         existingops.append((o,r))
 
-    # for o in ops:
-    #     for s in matstrats:
-    #         if 'ONE_KEY' in str(s) and 'GetNames' in str(o):
-    #             import pdb
-    #             pdb.set_trace()
-    #             mp.get_pqcost(o,s,currun)
-
-    
-    #trips = [(r,op,s) for r in xrange(1, currun+1) for op in ops for s in matstrats]
-
     xold = [Runtime.instance().check_strategy(op,r,s) and 1 or 0 for r,op,s in trips]
 
     avg_runtime = sum(filter(lambda x: x > 0, [mp.get_opcost(op, s) for r,op,s in pairs if r == currun]))
@@ -102,17 +92,12 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
             mincs[op] = cost
         if cost > 0 and cost < mincs[op]:
             mincs[op] = cost
-        if cost > 1000 and 'ONE_MANY_f' in str(s) and r == w._runid-1 and 'Extract' in str(op):
-            import pdb
-            pdb.set_trace()
-            mp.get_pqcost(op,s,r)
-    #c = [mp.get_pqcost(op,s,r) for r,op,s in trips]
 
     # normalize disk and runcost to minc
     G1p, G2p = [], []
     for (r,o,s), g1, g2 in zip(trips, G1, G2):
-        G1p.append(g1 / max(G1dict[o]) * mincs[op])
-        G2p.append(g2 / max(G2dict[o]) * mincs[op])
+        G1p.append(g1 / max(G1dict[o]) * mincs[o])
+        G2p.append(g2 / max(G2dict[o]) * mincs[o])
     c = map(sum, zip(c, G1p, G2p))
     cp = list(c)
     d = dict([(t, cost) for cost, t in zip(c, trips)])

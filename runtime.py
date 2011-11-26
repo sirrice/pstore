@@ -79,6 +79,9 @@ class Runtime(object):
                 if set(s.modes()).intersection([Mode.PT_MAPFUNC, Mode.PT_MAPFUNC_BOX, Mode.PTR]):
                     ret.append( (runid, op, s) )
         return ret
+
+    def get_total_disk(self):
+        return sum([pstore.disk() for pstore in self.pstores.values()])
     
 
     def get_filename(self, op, run_id):

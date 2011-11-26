@@ -149,7 +149,7 @@ def write_model(strat, fanin, fanout, density, noutput, opcost):
     for bucket in strat.buckets:
         for desc in bucket.descs:
             cost += write_model_desc(desc, fanin, fanout, density, noutput, opcost)
-    return cost / 3.0
+    return cost / 3.0 / 50.0
 
 def write_model_desc(desc, fanin, fanout, density, noutput, opcost):
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
@@ -332,9 +332,10 @@ def forward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel,
         return 1000000000, 0,0,0
 
     if desc.spec.outcoords == Spec.COORD_ONE:
-        nentries = noutput
+        nentries = noutput 
     else:
         nentries = noutput / fanout
+
     if not desc.backward:
         desc = Desc(desc.mode, desc.spec, True)
         return backward_model_desc(desc, fanout, fanin, density, noutput, runtime, nqs, sel, inputarea, nentries, debug=debug)

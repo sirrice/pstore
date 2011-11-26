@@ -112,6 +112,9 @@ def run_model(db, configs, qsizes):
         for qsize in qsizes:
             fcost = forward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
             bcost = backward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
+            if fcost > 100: fcost = 0
+            if bcost > 100: bcost = 0
+            print fcost
             desc = list(strat.descs())[0]
             idxcost, keycost, parsecost, extractcost = backward_model_desc(desc, fanin, fanout, 1.0, noutput,
                                                                            0.001, qsize, 1.0, 100*100)
@@ -121,7 +124,7 @@ def run_model(db, configs, qsizes):
             sql = "insert into qcosts values (%s)" % ','.join(['?']*len(params))
             cur.execute(sql, tuple(params))
 
-            params = [sid, qsize, False, bcost, 0]
+            params = [sid, qsize, False, fcost, 0]
             params.extend([0,0,0,0,0])
             cur.execute(sql, tuple(params))
 
@@ -161,6 +164,11 @@ def run_exp(db, configs, qsizes):
         def output_shape(self, run_id):
             return self.shape
 
+        def fmap_obj(self, obj, run_id, arridx):
+            return []
+        def bmap_obj(self, obj, run_id, arridx):
+            return []
+
     arr = np.zeros((100,100))
     op = BenchOp(arr)
     runid = 1
@@ -178,13 +186,14 @@ def run_exp(db, configs, qsizes):
         for iterid in xrange(1):
             pstore = op.pstore(runid)
             runid += 1
+            start = time.time()
             for outcoords, incoords in prov:
                 if pstore.uses_mode(Mode.PTR):
                     pstore.write(outcoords, incoords)
                 else:
                     pstore.write(outcoords, 's' * 10)
             pstore.close()
-
+            end = time.time()
 
             incache = pstore.get_stat('incache', 0)
             outcache = pstore.get_stat('outcache', 0)
@@ -193,7 +202,7 @@ def run_exp(db, configs, qsizes):
             serout = pstore.get_stat('serout', 0)
             mergecost = pstore.get_stat('mergecost', 0)
             bdbcost = pstore.get_stat('bdbcost', 0)
-            wcost = pstore.get_stat('write', 0)
+            wcost = end - start #pstore.get_stat('write', 0)
             disk = pstore.disk()
             idx = pstore.indexsize()
             runcosts = (wcost, incache, outcache, flush, serout, serin, mergecost, bdbcost, disk, idx)
@@ -245,7 +254,7 @@ def run_exp(db, configs, qsizes):
 def draw(db, ylabel, fanin, noutput):
     cur = db.cursor()
 
-    where = '1=1'#"strat != 'ONE_MANY_f' and strat != 'ONE_KEY_f' "
+    where = "strat != 'ONE_GRID_b' and strat != 'MANY_GRID_b' and 1=1"#"strat != 'ONE_MANY_f' and strat != 'ONE_KEY_f' "
     if ylabel == 'disk':
         newylabel = '(disk - ( noutput / fanout ) + (24 + 60.18) + 7340) / 1048576.0'
         newylabel = 'disk / 1048576.0'
@@ -451,7 +460,7 @@ def fit(db, attr, f, where='1 = 1'):
 def viz(db, fanins, noutputs):
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin', 'serout',
               'serin+serout-bdbcost-ser', 'serout-bdbcost', 'disk')
-    labels = ('wcost', 'disk')
+    labels = ('flush', 'disk')
     for label in labels:
         for fanin in fanins:
             for noutput in noutputs:
@@ -530,21 +539,21 @@ if __name__ == '__main__':
         #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.BOX), True),
         #Strat.single(Mode.PTR, Spec(Spec.KEY, Spec.KEY), True),
         
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
         
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.BOX), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
 
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
-        #Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
-        #Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
+        Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
+        Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
 
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
@@ -557,10 +566,9 @@ if __name__ == '__main__':
     fanouts = [1, 10, 100,1000]#10,25,50,100,150,200,250,1000]
     noutputs = (100000,)
     fanins = [1, 10, 100, 500 ]
-    fanins = [1, 10]
+    fanins = [1, 10, 50]
     fanouts = [1, 50, 100, 1000]
     qsizes = [1000]
-    #fanins = [1, 10, 100, 1000, 9500, 10000]
 
 
 
