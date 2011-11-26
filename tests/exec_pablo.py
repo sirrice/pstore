@@ -401,7 +401,7 @@ def create_workflow():
             return "CUSTOM"
 
         def opt(ds, eids, runmode, disk, runcost):
-            mp = ModelPredictor(eids, w)
+            mp = ModelPredictor(eids, w, disk, runcost)
             strategies, torm = run_nlp(Stats.instance(), w, mp, disk,runcost)
             for op in sorted(strategies.keys()):
                 Runtime.instance().set_strategy(op, strategies[op][0])
@@ -485,9 +485,10 @@ if __name__ == '__main__':
 
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
-        basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0
+        basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
         disksizes = [0.1, 1, 10, 100 ]
-        disksizes = [100, 10]
+        disksizes = [1, 2, 5, 10, 100]
+        disksizes = [100]
         #disksizes = [1000000000]
         runcost = 10000000
         
@@ -496,7 +497,7 @@ if __name__ == '__main__':
         
         for disk in disksizes:
             Runtime.instance().restore_pstores() # this resets the experiment
-            iteridxs = [0,0,1,3,5,5]
+            iteridxs = [0,0,1,3,5,5,5,5,5,5]
 
             # gotta get some stats
             run(ds, runmode, 'stats', disk, runcost, [-1])
@@ -505,8 +506,9 @@ if __name__ == '__main__':
             
             
             for iteridx in iteridxs:
-                runtype = set_strat(ds, eids, runmode, disk * basesize, runcost)
-
+            #iteridx = 3
+            #if True:
+                runtype = set_strat(ds, eids, runmode, disk, runcost)
                 print runtype, disk
                 if bmodel:
                     run_model(ds, runmode, runtype, disk, runcost, eids)

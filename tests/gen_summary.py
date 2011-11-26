@@ -77,7 +77,9 @@ def get_exps(runmode):
 def get_labels(exps):
     replaces = (('KEY', 'REF'), ('PTR_', '3_'), ('_B', '_b'), ('_F', '_f'), ('PTMAP_', '2_')
                 )
-    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SUBZERO'))
+    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SUBZERO'),
+                ('QUERY', 'BlackBox'), ('ONE_REF', 'FullOne'), ('many_ref', 'FullMany'), ('many_many', 'FullMany'),
+        ('queryopt', 'BlackBoxOpt'))
     
     
     
@@ -158,6 +160,7 @@ def get_plot(runmode):
 
 
     title = "Disk and Runtime Overhead (scaled %dx)" % runmode
+    title = "Disk and Runtime Overhead"
     ylabel = "Disk (MB) and Runtime Overhead (sec)"
     fname = "overhead%d" % runmode
     draw(ymax * 1.2, 0, ['overhead', 'disk'], table, labels, title,
@@ -205,19 +208,21 @@ def get_plot(runmode):
     features = sorted(['%sQ %s' % (path[0][1] and 'F' or 'B', pid) for path, pid in allpaths.items()])
     ymax, ymin = max(allcosts), min(allcosts)
 
-    if ymax / ymin > 100 and False:
+    if ymax / ymin > 100:
 #    if max(allcosts) > np.std(allcosts) * 5 + np.mean(allcosts):
         yscale = 'log'
         ymax *= 10
+        ymin = 0.01
     else:
         yscale = 'linear'
         ymin = 0
         ymax *= 1.2
-        ymax = min(ymax, 30)
+        #ymax = min(ymax, 30)
     plotargs = { 'yscale' : yscale }
     
     title = 'Query Cost vs Strategies (scaled %dx)' % runmode
-    ylabel = 'Query Cost (sec)'
+    title = 'Query Cost vs Strategies'
+    ylabel = 'Query Cost (sec) (log)'
     fname = 'cost%d' % runmode
     draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs)
     return
@@ -235,8 +240,8 @@ def draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs={})
     fontP = FontProperties()
     fontP.set_size(15)
     figparams = matplotlib.figure.SubplotParams(top=0.9)
-    fig = plt.figure(figsize=(15, 7), subplotpars=figparams)
-    ax = fig.add_subplot(111, ylim=[0.0, ymax*1.2], **plotargs)
+    fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
+    ax = fig.add_subplot(111, ylim=[ymin, ymax*1.2], **plotargs)
     ax.titlesize = 15
     ax.labelsize = 50
 
@@ -263,8 +268,8 @@ def draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs={})
     # ax.legend(loc='upper center',# 
     #           ncol=3, fancybox=True, shadow=True, prop=fontP)        
     plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features],
-                  loc='upper center', ncol=5, fancybox=True, shadow=True, prop=fontP,
-                  bbox_to_anchor=(0.5, .85))
+                  loc='upper center', ncol=3, fancybox=True, shadow=True, prop=fontP,
+                  bbox_to_anchor=(0.5, .88))
     ax.set_ylabel(ylabel)
     ax.set_xlabel('Storage Strategies')
     ax.set_xticks(ind+(width * 5))

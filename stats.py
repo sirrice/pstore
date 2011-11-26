@@ -256,7 +256,7 @@ class Stats(object):
 
     def get_matching_noops(self, runmode, shape, disk=None, runc=None):
         cur = self.conn.cursor()
-        print runmode, shape
+
         if disk is None or True:
             res = cur.execute("""select rowid from exec where runmode = ? and
             width = ? and height = ? and finished = 1 and runtype = 'stats'""",
@@ -275,19 +275,25 @@ class Stats(object):
 
     def get_similar_eids(self, noopeid, diskc, runc):
         cur = self.conn.cursor()
-        if diskc == None or runc == None:
+        if  False:
             q = """select e2.rowid from exec as e1, exec as e2
             where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
-            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4) ; """
+            and e2.finished = 1 and e2.runtype != 'noop' and e2.runtype != 'stats' and e2.finished = 1; """
+            res = cur.execute(q, (noopeid,))
+        elif diskc == None or runc == None:
+            q = """select e2.rowid from exec as e1, exec as e2
+            where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
+            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4) and e2.finished = 1 ; """
             res = cur.execute(q, (noopeid,))
         else:
             q = """select e2.rowid from exec as e1, exec as e2
             where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
-            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4)
+            and e2.finished = 1 and 'opt' = substr(e2.runtype, 0, 4) and e2.finished = 1
             and e2.diskconstraint = ? and e2.runconstraint = ?; """
+            print "SimilarEIDS\t", noopeid, diskc, runc
             res = cur.execute(q, (noopeid, diskc,  runc))
         eids = [int(row[0]) for row in res]
-        print eids
+
         cur.close()
         return eids
         
@@ -364,26 +370,25 @@ class Stats(object):
         return ret
 
     def get_iq_stat(self, eids, opid, arridx):
-        q = """select eid, avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
-        from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
-        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 1 and ninputs > 0
-        group by pq.eid
-        order by pq.eid desc
-        """ % (','.join(map(str, eids)))
+        eids = sorted(eids, reverse=True)
         cur = self.conn.cursor()
-        res = cur.execute(q, (opid, arridx))
-        fqsizes = [tuple(row) for row in res]
+        fqsizes, bqsizes = [], []
+        for eid in eids:
+            q = """select avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
+            from iq, pq, exec where iq.pqid = pq.rowid and exec.rowid = pq.eid and iq.opid = ?
+            and iq.arridx = ? and pq.eid = ? and iq.forward = 1 and ninputs > 0 and exec.finished = 1
+            """
+            cur.execute(q, (opid, arridx, eid))
+            row = cur.fetchone()
+            fqsizes.append(row)
 
-
-        q = """select eid, avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
-        from iq, pq where iq.pqid = pq.rowid and iq.opid = ?
-        and iq.arridx = ? and pq.eid in (%s) and iq.forward = 0 and ninputs > 0
-        group by pq.eid
-        order by pq.eid desc""" % (','.join(map(str, eids)))
-        cur = self.conn.cursor()
-        res = cur.execute(q, (opid, arridx))
-
-        bqsizes = [tuple(row) for row in res]
+            q = """select avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
+            from iq, pq, exec where iq.pqid = pq.rowid and exec.rowid = pq.eid and iq.opid = ?
+            and iq.arridx = ? and pq.eid = ? and iq.forward = 0 and ninputs > 0 and exec.finished = 1
+            """
+            cur.execute(q, (opid, arridx, eid))
+            row = cur.fetchone()
+            bqsizes.append(row)
 
         cur.close()
         return fqsizes, bqsizes

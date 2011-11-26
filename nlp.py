@@ -9,7 +9,7 @@ from cvxopt import glpk
 
 nlog = logging.getLogger('nlp')
 logging.basicConfig()
-nlog.setLevel(logging.INFO)
+nlog.setLevel(logging.DEBUG)
 
 
 
@@ -102,6 +102,10 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
             mincs[op] = cost
         if cost > 0 and cost < mincs[op]:
             mincs[op] = cost
+        if cost > 1000 and 'ONE_MANY_f' in str(s) and r == w._runid-1 and 'Extract' in str(op):
+            import pdb
+            pdb.set_trace()
+            mp.get_pqcost(op,s,r)
     #c = [mp.get_pqcost(op,s,r) for r,op,s in trips]
 
     # normalize disk and runcost to minc
@@ -116,7 +120,8 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     
     nlog.debug("Constraints: %f\t%f" , maxdisk, maxoverhead)
     for (r, op, s), pqcost in zip(trips, G1p):
-        nlog.debug('%s\t%s\t%.9f\t%f\t%f\t%f', op, str(s).ljust(25),
+        if 'Extract' not in str(op): continue
+        nlog.debug('%s\t%s\t%.15f\t%f\t%f\t%.15f', op, str(s).ljust(25),
                    pqcost,
                    mp.get_disk(op,s),
                    mp.get_provcost(op, s),

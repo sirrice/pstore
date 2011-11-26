@@ -449,8 +449,10 @@ class DiskStore(IPstore):
 
     def get_iter(self):
         badprefixes = ('key:', 'b:', 'ref:')
-        return (x for x in self.bdb.iteritems()
-                if not x[0].startswith("key:") and not x[0].startswith('b:') and not x[0].startswith('ref:'))
+        for key in self.bdb.keys():
+            if key.startswith("key:")  or key.startswith('b:') or key.startswith('ref:'):
+                continue
+            yield (key, self.bdb[key])
 
     def disk(self):
         try:
