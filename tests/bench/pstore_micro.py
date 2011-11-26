@@ -540,6 +540,8 @@ if __name__ == '__main__':
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
         #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
         #Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
         #Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),

@@ -1180,7 +1180,7 @@ class PStore3(DiskStore):
 
         start = time.time()
         for cache, counts, incoords in zip(self.incache, self.incounts, incoords_arr):
-            self.add_to_cache(cache, counts, incoords, self.spec.payload)
+            self.add_to_cache(cache, counts, list(incoords), self.spec.payload)
         self.inc_stat('incache', time.time() - start)
 
         if sum(map(len,self.incache)) + len(self.outcache) > 1000000:
