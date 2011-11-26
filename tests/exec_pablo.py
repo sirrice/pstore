@@ -488,7 +488,7 @@ if __name__ == '__main__':
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
         disksizes = [0.1, 1, 10, 100 ]
         disksizes = [1, 2, 5, 10, 100]
-        disksizes = [100]
+        disksizes = [1,2,5,10,50,100]
         #disksizes = [1000000000]
         runcost = 10000000
         
