@@ -1310,7 +1310,14 @@ class PStore3(DiskStore):
                 return struct.pack('%dI' % len(l), *[self.enc_in(c, arridx) for c in l])
                           
             elif mode == Spec.BOX:
-                raise RuntimeError
+                oldbox = self._parse(StringIO(old), mode)
+                newbox = self._parse(StringIO(new), mode)
+                oldbox = [self.dec_in(o, arridx) for o in oldbox]
+                newbox = [self.dec_in(o, arridx) for o in newbox]
+                box = ((min(oldbox[0][0], newbox[0][0]), min(oldbox[0][1], newbox[0][1]) ),
+                       (max(oldbox[1][0], newbox[1][0]), max(oldbox[1][1], newbox[1][1])))
+                encbox = [ self.enc_in(box[0], arridx), self.enc_in(box[1], arridx) ]
+                return struct.pack('2I', *encbox)
             elif mode == Spec.COORD_ONE:
                 raise RuntimeError
 
