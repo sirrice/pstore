@@ -488,7 +488,6 @@ if __name__ == '__main__':
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
         disksizes = [5,10,50,100]
-        disksizes = [15]
         runcost = 10000000
         
         w.boptimize = bdynamic
