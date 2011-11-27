@@ -9,7 +9,8 @@ from cvxopt import glpk
 
 nlog = logging.getLogger('nlp')
 logging.basicConfig()
-nlog.setLevel(logging.INFO)
+nlog.setLevel(logging.DEBUG)
+
 
 
 
@@ -19,6 +20,8 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     """
     stats = Stats.instance()
     ops = w.get_optimizable_ops()
+    mapops = [op for op in ops if Mode.FULL_MAPFUNC in op.supported_modes()]
+    ops = [op for op in ops if Mode.FULL_MAPFUNC not in op.supported_modes()]
     matstrats = w.get_matstrats()
     currun = w._runid
     pairs = [(currun, op, s) for op in ops for s in matstrats]
@@ -105,7 +108,7 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     
     nlog.debug("Constraints: %f\t%f" , maxdisk, maxoverhead)
     for (r, op, s), pqcost in zip(trips, G1p):
-        if 'Extract' not in str(op): continue
+        if 'CumO' not in str(op): continue
         nlog.debug('%s\t%s\t%.15f\t%f\t%f\t%.15f', op, str(s).ljust(25),
                    pqcost,
                    mp.get_disk(op,s),
@@ -114,6 +117,8 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
         
 
     strategies, torm = nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b)
+    for mapop in mapops:
+        strategies[mapop] = [Strat.full()]
 
     return strategies, torm
     
@@ -123,10 +128,10 @@ def nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b):
     @return newassignments, prov_to_remove
     prov_to_remove is a list of (op, runid) pairs
     """
-    solvers.options['show_progress'] = False
-    solvers.options['LPX_K_MSGLEV'] = 0
-    solvers.options['MessageLevel'] = 3
-    glpk.options['LPX_K_MSGLEV'] = 0
+    # solvers.options['show_progress'] = False
+    # solvers.options['LPX_K_MSGLEV'] = 0
+    # solvers.options['MessageLevel'] = 3
+    # glpk.options['LPX_K_MSGLEV'] = 0
 
     I = set()
     B = set(range(len(c)))
