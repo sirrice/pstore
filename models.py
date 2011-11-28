@@ -81,7 +81,7 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
             ptr = 4 + negs
         elif spec[1] == Spec.BOX:
             a,b = 1.75343538, 41.79651412
-            ptr = 12
+            ptr = 8
         elif spec[1] == Spec.BINARY:
             a,b = 1.75343538, 41.79651412
             ptr = 4 + 4 + payload
@@ -113,7 +113,7 @@ def get_disk_params(spec, fanin, fanout, density, noutput, payload):
     a,b = 1.2, 5
     return a,b,okey,ikey,ptr,idx,nentries    
     
-def disk_model_desc(desc, fanin, fanout, density, noutput, payload=2):
+def disk_model_desc(desc, fanin, fanout, density, noutput, payload=4):
     #desc.mode, desc.spec, desc.backward
     if desc.mode in (Mode.QUERY, Mode.FULL_MAPFUNC):
         return 0
@@ -238,7 +238,7 @@ def overhead_costs(desc, fanin, fanout, density, noutput, nptrs):
         else:
             entrysizes = [4 + 4 * (fanin+1)]
     else:
-        nbdbentries = (noutput / fanout) * 2
+        nbdbentries = (noutput / fanout) 
         if spec[1] == Spec.KEY:
             entrysizes = [4 * (fanout+1) + 4, 4 * (fanout+1) + 18, 18 + (fanin+1), 4+4]
         else:
@@ -318,7 +318,8 @@ def forward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, inp
 
     if scost is None:
         scost = 10000000
-    if strat != Strat.query():
+    # why is this even here?
+    if False and strat != Strat.query():
         qlog = forward_model(Strat.query(), fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=inputarea)
         return min(scost, qlog)
     return scost
@@ -365,7 +366,7 @@ def backward_model(strat, fanin, fanout, density, noutput, runtime, nqs, sel, in
             scost = min(scost, bcost)
     if scost == None:
         scost = 10000000
-    if strat != Strat.query():
+    if False and strat != Strat.query():
         qlog = backward_model(Strat.query(), fanin, fanout, density, noutput, runtime, nqs, sel, inputarea=inputarea)
         return min(scost, qlog)
     return scost
@@ -415,11 +416,10 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
     perbdbcost = (nentries * 2 * a + entrysize * b )
 
     
-    
     if desc.spec.outcoords == Spec.COORD_ONE:
         keycost = nqs * coord_one
         datacost = nqs * perbdbcost
-        nmatches = nqs * sel
+        nmatches = nqs 
 
         # value parsing costs
         extractcost = 0.0
@@ -430,11 +430,12 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
             extractcost += nmatches * perbdbcost
             a,b = 7.08e-07,   3.17e-07
             extractcost += nmatches * (a / fanin + b) * fanin
+            datacost += nqs * perbdbcost
         elif spec.payload == Spec.GRID:
             a,b = 5.75881062e-06 ,  2.21225251e-04
             extractcost += (a * fanin + b) * nmatches
         elif spec.payload == Spec.BOX:
-            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea) * nmatches
         elif spec.payload == Spec.BINARY:
             extractcost += nmatches * 0.0000016
         else:
@@ -476,7 +477,7 @@ def backward_model_desc(desc, fanin, fanout, density, noutput, runtime, nqs, sel
             a,b = 5.75881062e-06 ,  2.21225251e-04
             extractcost += (a * fanin + b) * nmatches
         elif spec.payload == Spec.BOX:
-            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea)
+            extractcost = runtime * min((fanin / density), inputarea)  / float(inputarea) * nmatches
         elif spec.payload == Spec.BINARY:
             extractcost += nmatches * 0.0000016
         else:

@@ -250,13 +250,15 @@ class ModelPredictor(object):
             fqsize = self.fqsizes.get((op, arridx), 1000000)
         if bqsize is None:
             bqsize = self.bqsizes.get((op, arridx), 1000000)
+        qfanout = self.qfanouts.get((op, arridx), 1.0)
+        qfanin  = self.qfanins.get((op, arridx), 1.0)
         boxperc = area / inputsize
         prov = write_model(strat, fanin, oclustsize, density, noutcells, opcost) 
         disk = disk_model(strat, fanin, oclustsize, density, noutcells)
-        fcost = forward_model(strat, fanin, oclustsize, density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
-        bcost = backward_model(strat, fanin, oclustsize, density, noutcells, opcost, bqsize, 1.0, inputarea=inputsize)
-        # idx,key,parse,extract = forward_model_desc(list(strat.descs())[0], fanin, oclustsize,
-        #                                            density, noutcells, opcost, fqsize, 1.0, inputarea=inputsize)
+        fcost = forward_model(strat, fanin, oclustsize, density, noutcells,
+                              opcost, fqsize, qfanout, inputarea=inputsize)
+        bcost = backward_model(strat, fanin, oclustsize, density, noutcells,
+                               opcost, bqsize, qfanin, inputarea=inputsize)
 
         return prov, disk, fcost, bcost, opcost
 
