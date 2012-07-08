@@ -1,4 +1,5 @@
 import sys
+import collections
 sys.path.append('..')
 from stats import Stats
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ WHERE e1.rowid = wr.eid and e1.runtype = 'noop' and
 NORMDISK = """select sum(wi.area) * 8.00002 * 2
 FROM workflow_inputs as wi, workflow_run as wr
 WHERE wi.wid = wr.rowid and wr.eid = ?"""
-NORMDISK = """select width * height * 8.00002
+NORMDISK = """select width * height * 8.00002 * 2
 FROM exec where rowid = ?"""
 
 PQCOST = """SELECT avg(pq.cost)
@@ -71,17 +72,17 @@ def get_exps(runmode):
     cur.execute("""select rowid, runmode, runtype, width, height, diskconstraint, runconstraint
                 from exec where runmode = ? and
                 runtype not in ('noop', 'noop_model', 'stats', 'stats_model', 'opt', 'noop_m', 'stats_m')
-                order by rowid, diskconstraint""", (runmode,))
+                order by diskconstraint""", (runmode,))
     return cur.fetchall()
 
 def get_labels(exps):
     replaces = (('KEY', 'REF'), ('PTR_', '3_'), ('_B', '_b'), ('_F', '_f'), ('PTMAP_', '2_')
                 )
-    fullreps = (('q_opt', 'Query Log'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SUBZERO'),
+    fullreps = (('q_opt', 'BlackBox'), ('F_b', 'ONE_REF_b,f'), ('OPT_MANUAL', 'SubZero'),
                 ('QUERY', 'BlackBox'), ('ONE_REF', 'FullOne'), ('many_ref', 'FullMany'), ('many_many', 'FullMany'),
-        ('queryopt', 'BlackBoxOpt'))
-    
-    
+                ('queryopt', 'BlackBoxOpt'), ('3_one_ref_b', 'FullOne'),  ('3_many_many_b', 'FullMany'),
+                ('3_one_ref_f', 'FullForw'), ('3_f_b', 'FullBoth'),  ('2_one_ref_b', 'PayOne'),
+                ('2_many_many_b', 'PayMany'), ('2_f_b', 'PayBoth'))
     
     labels = []
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
@@ -95,6 +96,9 @@ def get_labels(exps):
                 label = v
         if label.endswith('_M'):
             label = label[:-2]
+        if label.startswith('OPT_'):
+            arr = label.split('_')
+            label = ''.join(['SubZero', str(int(float(arr[1])))])
         print label
         labels.append(label)
     return labels
@@ -111,7 +115,7 @@ def get_overhead(exps):
     FROM pstore_overhead as po, workflow_run as wr, exec
     WHERE po.wid = wr.rowid and wr.eid = exec.rowid and exec.rowid = ? and strat != 's:Func' """
 
-    table = {'overhead':[], 'disk':[], 'idx':[]}
+    table = collections.defaultdict(list)
     for rowid, runmode, notes, width, height, dcon, rcon in exps:
         basecost, basedisk = get_baseline(rowid)
         
@@ -119,11 +123,11 @@ def get_overhead(exps):
         cur.execute(OVERHEAD, (rowid,))
         opcost, disk, idx = cur.fetchone()
 
-        print "opcost", notes, opcost, basecost, opcost/basecost, disk, basedisk, disk/basedisk
+        print "opcost", notes, opcost, basecost, disk, basedisk,'\tratios:\t', opcost/basecost, '\t', disk/basedisk
 
-        table['overhead'].append(opcost)
-        table['disk'].append(disk / 1048576.0)
-        table['idx'].append(float(idx) / 1048576.0)
+        table['Runtime'].append(opcost)
+        table['Disk'].append(disk / 1048576.0 + 8.6)
+        table['Idx'].append(float(idx) / 1048576.0)
 
 
         # table['overhead'].append((opcost - basecost) / basecost)
@@ -161,9 +165,11 @@ def get_plot(runmode):
 
     title = "Disk and Runtime Overhead (scaled %dx)" % runmode
     title = "Disk and Runtime Overhead"
-    ylabel = "Disk (MB) and Runtime Overhead (sec)"
+    ylabel = "Disk (MB) and Runtime (sec)"
     fname = "overhead%d" % runmode
-    draw(ymax * 1.2, 0, ['overhead', 'disk'], table, labels, title,
+    ymax = ymax * 1.1
+    ymin = 0
+    draw(ymax, ymin, ['Runtime', 'Disk'], table, labels, title,
          ylabel, fname, plotargs={'yscale':'linear'})
 
 
@@ -208,10 +214,9 @@ def get_plot(runmode):
     features = sorted(['%sQ %s' % (path[0][1] and 'F' or 'B', pid) for path, pid in allpaths.items()])
     ymax, ymin = max(allcosts), min(allcosts)
 
-    if ymax / ymin > 100:
-#    if max(allcosts) > np.std(allcosts) * 5 + np.mean(allcosts):
+    if False and ymax / ymin > 100:
         yscale = 'log'
-        ymax *= 10
+        ymax *= 50
         ymin = 0.01
     else:
         yscale = 'linear'
@@ -219,10 +224,10 @@ def get_plot(runmode):
         ymax *= 1.2
         #ymax = min(ymax, 30)
     plotargs = { 'yscale' : yscale }
-    
+
     title = 'Query Cost vs Strategies (scaled %dx)' % runmode
     title = 'Query Cost vs Strategies'
-    ylabel = 'Query Cost (sec) (log)'
+    ylabel = 'Query Cost (sec)%s' % (yscale == 'log' and ' (log)' or '')
     fname = 'cost%d' % runmode
     draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs)
     return
@@ -238,29 +243,29 @@ def get_plot(runmode):
 def draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs={}):
     # draw the graph
     fontP = FontProperties()
-    fontP.set_size(15)
-    figparams = matplotlib.figure.SubplotParams(top=0.9)
-    fig = plt.figure(figsize=(10, 5), subplotpars=figparams)
+    fontP.set_size(17)
+    figparams = matplotlib.figure.SubplotParams(top=0.9, bottom=0.15)
+    fig = plt.figure(figsize=(15, 6), subplotpars=figparams)
     ax = fig.add_subplot(111, ylim=[ymin, ymax*1.2], **plotargs)
-    ax.titlesize = 15
+    ax.titlesize = 20
     ax.labelsize = 50
 
-    # for tick in ax.xaxis.get_major_ticks():
-    #     tick.label1.set_fontsize(20)
-    # for tick in ax.yaxis.get_major_ticks():
-    #     tick.label1.set_fontsize(20)
+    for tick in ax.xaxis.get_major_ticks():
+        tick.label1.set_fontsize(19)
+    for tick in ax.yaxis.get_major_ticks():
+        tick.label1.set_fontsize(19)
 
 
 
     ind = np.arange(len(table[table.keys()[0]]))#3)
-    width = 0.07#0.037
+    width = 0.1#0.037
     colors = ['#1f77b4', '#aec7e8', '#ff7f0e', '#ffbb78', '#2ca02c', '#98df8a', '#d62728', '#ff9896', '#9467bd', '#c5b0d5', '#8c564b', '#c49c94', '#e377c2', '#f7b6d2', '#7f7f7f', '#c7c7c7', '#bcbd22', '#dbdb8d', '#17becf', '#9edae5']
     n = 0
     rects = []
     for feature in features:
         row = table[feature]
         print row
-        rect = ax.bar(ind + (width * n * 1.3), row, width,
+        rect = ax.bar(ind + (width * n * 1.3) + .3 , row, width+0.01,
                       color=colors[n % len(colors)], linewidth = 0)
         rects.append(rect)
         n += 1
@@ -268,13 +273,13 @@ def draw(ymax, ymin, features, table, labels, title, ylabel, fname, plotargs={})
     # ax.legend(loc='upper center',# 
     #           ncol=3, fancybox=True, shadow=True, prop=fontP)        
     plt.figlegend([rect[0] for rect in rects], ['%s' % f for f in features],
-                  loc='upper center', ncol=3, fancybox=True, shadow=True, prop=fontP,
-                  bbox_to_anchor=(0.5, .88))
-    ax.set_ylabel(ylabel)
-    ax.set_xlabel('Storage Strategies')
+                  loc='upper center', ncol=4, fancybox=True, shadow=True, prop=fontP,
+                  bbox_to_anchor=(0.5, .89))
+    ax.set_ylabel(ylabel, size=20)
+    ax.set_xlabel('Storage Strategies', size=20)
     ax.set_xticks(ind+(width * 5))
     ax.set_xticklabels(labels)
-    ax.set_title(title)
+    ax.set_title(title, size=20)
     ax.grid(True)
     plt.savefig('./figs/%s.png' % (fname), format='png')
     plt.cla()

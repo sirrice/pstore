@@ -1,4 +1,4 @@
-import os, logging, numpy
+import os, logging, numpy, time
 from util import print_matrix
 from runtime import *
 from stats import Stats
@@ -95,6 +95,9 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
             mincs[op] = cost
         if cost > 0 and cost < mincs[op]:
             mincs[op] = cost
+        if 'CreateModel' in str(op) and cost > 10000:
+            import pdb
+            pdb.set_trace()
 
     # normalize disk and runcost to minc
     G1p, G2p = [], []
@@ -108,7 +111,7 @@ def run_nlp(stats, w, mp, maxdisk, maxoverhead):
     
     nlog.debug("Constraints: %f\t%f" , maxdisk, maxoverhead)
     for (r, op, s), pqcost in zip(trips, G1p):
-        if 'CumO' not in str(op): continue
+#        if 'CumO' not in str(op): continue
         nlog.debug('%s\t%s\t%.15f\t%f\t%f\t%.15f', op, str(s).ljust(25),
                    pqcost,
                    mp.get_disk(op,s),
@@ -137,9 +140,11 @@ def nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b):
     B = set(range(len(c)))
 
 
-
+    start = time.time()
     status, x = ilp(c, G, h, A, b, I, B)
+    end = time.time()
 
+    nlog.info( "optruntime \t%.5f", (end-start))
     nlog.info( "status     \t%s", status )
     nlog.info( "resources  \t%s", np.array((G*x).trans())[0] )
     nlog.info( "constraints\t%s", np.array(h.trans())[0] )

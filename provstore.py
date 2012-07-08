@@ -12,7 +12,7 @@ from rtree import index
 
 plog = logging.getLogger('provstore')
 logging.basicConfig()
-plog.setLevel(logging.ERROR)
+plog.setLevel(logging.DEBUG)
 
 
 
@@ -982,7 +982,7 @@ class PStore2(DiskStore):
 
         self.memsize += len(outcoords) * 2 + len(payload)
 
-        if self.memsize > 1000000:
+        if self.memsize > 500000:
             self.flush()
             self.memsize = 0
 
@@ -1458,6 +1458,7 @@ class PStore3(DiskStore):
 
 
     def close(self):
+        start = time.time()
         if self.memdb:
             for key, val in self.memdb.iteritems():
                 self.dump(key, *val)
@@ -1466,8 +1467,10 @@ class PStore3(DiskStore):
         self.outbuf = None
         self.inbufs = [None] * self.nargs
         self.mergebuf = None
-        print "Closing", self.op, '\t', len(self.bdb), " entries"
+
         super(PStore3, self).close()
+        end = time.time()        
+        print "Closing", self.op, (end-start)        
         
 
 

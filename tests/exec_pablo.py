@@ -412,10 +412,7 @@ def create_workflow():
 
             return 'opt_%.1f_%d' % (disk, runcost)
 
-#        return [pt3]
-#        return [pt3]
         return [opt]
-        return [noop, query_opt, opt]
         return [noop, stat, query_opt, ptr1, ptr2, ptr3, ptr5, pt1, pt2, pt3]
         return [noop, stat, query_opt, pt3, pt4]
         return [noop, stat, query_opt, pt1]  
@@ -482,12 +479,14 @@ if __name__ == '__main__':
         ds = np.array([l.strip().split('\t') for l in f])[1:,:]
     print dbname, bmodel, bdynamic, runmode
     Stats.instance(dbname)
+    Stats.instance.timeseries = False
     w, run, run_model, get_strats, get_qs = create_workflow()
 
 
     def run_opt(ds, runmode, runtype, set_strat, get_qs, bmodel=False):
         basesize = ds.shape[0] * ds.shape[1] * 8 / 1048576.0 * 2
-        disksizes = [5,10,50,100]
+        disksizes = [1, 5,10,50,100]
+        disksizes = [20, 30]
         runcost = 10000000
         
         w.boptimize = bdynamic
@@ -504,9 +503,9 @@ if __name__ == '__main__':
             print 'eids', eids
             
             
-            for iteridx in iteridxs:
-            #iteridx = 3
-            #if True:
+            #for iteridx in iteridxs:
+            iteridx = 3
+            if True:
                 runtype = set_strat(ds, eids, runmode, disk, runcost)
                 print runtype, disk
                 if bmodel:

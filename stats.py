@@ -27,8 +27,7 @@ class Stats(object):
     """
 
     def __init__(self, fname):
-        self.oid_to_name = {}
-
+        self.timeseries = False
         self.conn = sqlite3.connect(fname)
         self.setup()
 
@@ -265,7 +264,7 @@ class Stats(object):
     def get_matching_noops(self, runmode, shape, disk=None, runc=None):
         cur = self.conn.cursor()
 
-        if disk is None or True:
+        if disk is None :
             res = cur.execute("""select rowid from exec where runmode = ? and
             width = ? and height = ? and finished = 1 and runtype = 'stats'""",
             (runmode, shape[0], shape[1]))
@@ -283,7 +282,7 @@ class Stats(object):
 
     def get_similar_eids(self, noopeid, diskc, runc):
         cur = self.conn.cursor()
-        if  False:
+        if not self.timeseries:
             q = """select e2.rowid from exec as e1, exec as e2
             where e1.rowid = ? and e2.width = e1.width and e2.height = e2.height and e2.runmode = e1.runmode
             and e2.finished = 1 and e2.runtype != 'noop' and e2.runtype != 'stats' and e2.finished = 1; """
@@ -382,9 +381,9 @@ class Stats(object):
         cur = self.conn.cursor()
         fqsizes, bqsizes = [], []
         for eid in eids:
-            q = """select avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
+            q = """select avg(cast(noutputs as real) / (ninputs+1)), count(*), avg(ninputs)
             from iq, pq, exec where iq.pqid = pq.rowid and exec.rowid = pq.eid and iq.opid = ?
-            and iq.arridx = ? and pq.eid = ? and iq.forward = 1 and ninputs > 0 and exec.finished = 1
+            and iq.arridx = ? and pq.eid = ? and iq.forward = 1  and exec.finished = 1
             """
             cur.execute(q, (opid, arridx, eid))
             row = cur.fetchone()
@@ -392,7 +391,7 @@ class Stats(object):
 
             q = """select avg(cast(noutputs as real) / ninputs), count(*), avg(ninputs)
             from iq, pq, exec where iq.pqid = pq.rowid and exec.rowid = pq.eid and iq.opid = ?
-            and iq.arridx = ? and pq.eid = ? and iq.forward = 0 and ninputs > 0 and exec.finished = 1
+            and iq.arridx = ? and pq.eid = ? and iq.forward = 0 and exec.finished = 1
             """
             cur.execute(q, (opid, arridx, eid))
             row = cur.fetchone()

@@ -112,8 +112,8 @@ def run_model(db, configs, qsizes):
         for qsize in qsizes:
             fcost = forward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
             bcost = backward_model(strat, fanin, fanout, 1.0, noutput, 0.001, qsize, 1.0, 100*100)
-            if fcost > 100: fcost = 0
-            if bcost > 100: bcost = 0
+            if fcost > 1000: fcost = 0
+            if bcost > 1000: bcost = 0
             print fcost
             desc = list(strat.descs())[0]
             idxcost, keycost, parsecost, extractcost = backward_model_desc(desc, fanin, fanout, 1.0, noutput,
@@ -254,7 +254,7 @@ def run_exp(db, configs, qsizes):
 def draw(db, ylabel, fanin, noutput):
     cur = db.cursor()
 
-    where = "strat != 'ONE_GRID_b' and strat != 'MANY_GRID_b' and 1=1"#"strat != 'ONE_MANY_f' and strat != 'ONE_KEY_f' "
+    where = "strat != 'ONE_GRID_b' and strat != 'MANY_GRID_b' and strat != 'ONE_KEY_f' and 1=1"#"strat != 'ONE_MANY_f' and strat != 'ONE_KEY_f' "
     if ylabel == 'disk':
         newylabel = '(disk - ( noutput / fanout ) + (24 + 60.18) + 7340) / 1048576.0'
         newylabel = 'disk / 1048576.0'
@@ -460,7 +460,7 @@ def fit(db, attr, f, where='1 = 1'):
 def viz(db, fanins, noutputs):
     labels = ('ser', 'wcost', 'updatecost', 'bdbcost', 'serin', 'serout',
               'serin+serout-bdbcost-ser', 'serout-bdbcost', 'disk')
-    labels = ('flush', 'disk')
+    labels = ('wcost', 'disk')
     for label in labels:
         for fanin in fanins:
             for noutput in noutputs:
@@ -473,6 +473,8 @@ def stackviz(db, strats, fanins, noutputs):
     labels = ('wcost', 'bdbcost', 'serin','serout', 'ser')
     labels = ('wcost', 'incache', 'outcache', 'flush', 'serout', 'serin',
               'mergecost', 'bdbcost', 'flush-bdbcost-serout-serin-mergecost')
+    labels = ('wcost', 'flush', 'serout', 'serin',
+              'mergecost', 'bdbcost')
     #labels = ('bdbcost', 'disk/1048576.0', 'idx/1048576.0')
 
     for strat in strats:
@@ -541,6 +543,7 @@ if __name__ == '__main__':
         
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
         Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
 
