@@ -37,12 +37,14 @@ class BenchOp(Op):
             return [self._arr]
 
 
-    def __init__(self, arr):
+    def __init__(self, arr, fanin, fanout):
         super(BenchOp, self).__init__()
         shape = arr.shape
         self.wrapper = BenchOp.Wrapper(arr)
         self.workflow = None
         self.shape = shape
+        self.fanin = fanout
+        self.fanout = fanout
 
     def run(self, inputs, run_id):
         pass
@@ -50,12 +52,41 @@ class BenchOp(Op):
     def output_shape(self, run_id):
         return self.shape
 
+
+    def gen_provenance(self, coord, prov_size):
+        """
+        @coord centroid of output
+        @param prov_size either fanin or fanout value
+        @return a list of coordinates that represent simulated
+        provenance of input coordinate        
+        """
+        radius = max(int(math.ceil(math.sqrt(prov_size))), 1)
+        x,y = tuple(coord)
+        ix = min(self.shape[0], max(0, x - radius))
+        iy = min(self.shape[1], max(0, y - radius))
+        ret = []
+        
+        for i in xrange(prov_size):
+            ix += 1
+            if ix > min(self.shape[0], x+radius):
+                ix = min(self.shape[0], max(0, x - radius))
+                iy += 1
+            if iy >= min(self.shape[1], y+radius):
+                break
+
+            ret.append((ix, iy))
+
+        return ret
+
+
     def fmap_obj(self, obj, run_id, arridx):
-        return []
+        coords = obj[0]
+        return self.gen_provenance(coords[0], self.fanin)
+
+    
     def bmap_obj(self, obj, run_id, arridx):
-        return []
-
-
+        coords = obj[0]
+        return self.gen_provenance(coords[0], self.fanin)
 
 
 
@@ -91,7 +122,7 @@ def setup_table(db):
 
 
 def get_prov(config, arr_shape):
-    strat, fanin, fanout, noutput = config    
+    strat, fanin, fanout, noutput, payload_size = config    
     side = int(math.ceil(math.pow(float(fanin), 0.5)))
     oside = int(math.ceil(fanout ** 0.5))
     prov = []
@@ -116,8 +147,7 @@ def get_prov(config, arr_shape):
             outcoord = (randint(0,oside) + optx,
                          randint(0,side) + opty ) 
             outcoords.append(outcoord)
-            if outcoord[0] + outcoord[1] * maxy >= 2 ** (4*8):
-                pdb.set_trace()
+
             n += 1
 
 
@@ -168,19 +198,21 @@ def run_exp(db, configs, qsizes, arr_shape):
     cur = db.cursor()    
 
     for config in configs:
-        print 'running %s\t%d\t%d\t%d' % tuple(config)
+        random.seed(0)
+        print 'running %s\t%d\t%d\t%d\t%d' % tuple(config)
+        strat, fanin, fanout, noutput, payload_size = config        
         
-        op = BenchOp(arr)        
+        op = BenchOp(arr, fanin, fanout)
         sid, pstore = run_config(cur, config, op, runid, arr_shape)
-        run_queries(cur, qsizes, sid, pstore)
+        run_queries(cur, qsizes, sid, pstore, arr_shape)
         db.commit()
 
 
     cur.close()
 
 
-def run_config(cur, config, op, runid, arr_shape, niter=8):
-    strat, fanin, fanout, noutput = config
+def run_config(cur, config, op, runid, arr_shape, niter=1):
+    strat, fanin, fanout, noutput, payload_size = config
     Runtime.instance().set_strategy(op, strat)
     runid = 1
 
@@ -198,7 +230,7 @@ def run_config(cur, config, op, runid, arr_shape, niter=8):
             if pstore.uses_mode(Mode.PTR):
                 pstore.write(outcoords, incoords)
             else:
-                pstore.write(outcoords, 's' * 10)
+                pstore.write(outcoords, 's' * payload_size)
         pstore.close()
         end = time.time()
 
@@ -216,13 +248,16 @@ def run_config(cur, config, op, runid, arr_shape, niter=8):
         runcosts = (wcost, incache, outcache, flush, serout, serin, mergecost, bdbcost, disk, idx)
         costs.append(runcosts)
 
-    costs = costs[-2:]
     stds = map(np.std, zip(*costs))
     costs = map(np.mean, zip(*costs))
     
 
     print 'provwrite cost\t%.4f\t%.4f' % (costs[0], stds[0])
 
+    stratname = str(strat)
+    if Mode.PT_MAPFUNC in strat.modes():
+        stratname = '%s_%d' % (stratname, payload_size)
+    
     params = [str(strat), fanin, fanout, noutput]
     params.extend(costs)
     sql = """insert into stats(strat, fanin, fanout, noutput,
@@ -233,7 +268,7 @@ def run_config(cur, config, op, runid, arr_shape, niter=8):
 
     return sid, pstore
 
-def run_queries(cur, qsizes, sid, pstore):
+def run_queries(cur, qsizes, sid, pstore, arr_shape):
 
     # query the provenance store
     # vary query size
@@ -244,7 +279,7 @@ def run_queries(cur, qsizes, sid, pstore):
 
         for backward in (True, False):
 
-            stats = run_query(qsize, backward, pstore)
+            stats = run_query(qsize, backward, pstore, arr_shape)
 
             params = [sid, qsize, backward]
             params.extend(stats)
@@ -253,21 +288,25 @@ def run_queries(cur, qsizes, sid, pstore):
             sql = """insert into qcosts values (%s)""" % (','.join(['?']*len(params)))
             cur.execute(sql, tuple(params))
 
-def run_query(qsize, backward, pstore, niter=25):
+def run_query(qsize, backward, pstore, arr_shape, niter=5):
     all_stats = []
 
     for i in xrange(niter):
 
         pstore.clear_stats()
         
-        q = [(random.randint(0, 99), random.randint(0,99)) for i in xrange(qsize)]
-        q = Scan(q)
+        qcoords = [(random.randint(0, arr_shape[0]-1),
+                    random.randint(0, arr_shape[1]-1))
+                    for i in xrange(qsize)]
+        q = Scan(qcoords)
 
         
         nres = 0
         start = time.time()
+
         for res in pstore.join(q, 0, backward):
             nres += 1
+
         cost = time.time() - start
 
 
@@ -282,7 +321,7 @@ def run_query(qsize, backward, pstore, niter=25):
     stds= map(np.std, zip(*all_stats))        
     all_stats = map(np.mean, zip(*all_stats))
 
-    print backward, ('%.6f\t' * 4) % (all_stats[0], all_stats[1], stds[0], stds[1])
+    print backward, '\t', qsize, '\t', ('%.6f\t' * 4) % (all_stats[0], all_stats[1], stds[0], stds[1])
     
     return all_stats
 
@@ -322,31 +361,43 @@ if __name__ == '__main__':
 
     noutputs = (1000, 10000, 100000)
     fanins = [1, 10, 50, 100]
-    fanouts = [1, 50, 100]
-    qsizes = [1, 10, 100, 1000]
+    fanouts = [100, 50, 1]
+    qsizes = [1, 100, 1000]
+    payload_sizes = [0, 10, 50, 100]
     arr_shape = (1000, 1000)
 
 
-    def gen_configs(strats, noutputs, fanins, fanouts):
+    def gen_configs(strats, noutputs, fanins, fanouts, payload_sizes):
 
         for noutput in noutputs:
             for strat in strats:
-                for fanin in fanins:
+
+                # payload can ignore fanout values!
+                if Mode.PT_MAPFUNC in strat.modes():
+                    fanout = 10
+
+                    for fanin in fanins:
+                        for payload_size in payload_sizes:
+                            yield (strat, fanin, fanout, noutput, payload_size)
+
+                else:
                     for fanout in fanouts:
                         if fanout > noutput:
                             continue
-                        yield (strat, fanin, fanout, noutput)
-        
+                                                
+                        for fanin in fanins:
+                            yield (strat, fanin, fanout, noutput, 0)
+
+
     if len(sys.argv) <= 1:
         print "python pstore_micro.py [db path]"
         exit()
     dbname = sys.argv[1]
     db = sqlite3.connect(dbname)
-    
+
     run_exp(db,
-            gen_configs(strats, noutputs, fanins, fanouts),
+            gen_configs(strats, noutputs, fanins, fanouts, payload_sizes),
             qsizes,
             arr_shape)
-
 
     db.close()
