@@ -1,3 +1,7 @@
+"""
+"""
+
+
 import struct, math, time, random
 import bsddb3 as bsddb
 from StringIO import StringIO
@@ -12,7 +16,7 @@ from rtree import index
 
 plog = logging.getLogger('provstore')
 logging.basicConfig()
-plog.setLevel(logging.DEBUG)
+plog.setLevel(logging.ERROR)
 
 
 
@@ -224,6 +228,9 @@ def alltoall(fn):
 
 
 class IPstore(object):
+    """
+    Abstract class for provenance stores
+    """
     def __init__(self, op, run_id, fname, strat):
         self.op = op
         self.run_id = run_id
@@ -251,6 +258,9 @@ class IPstore(object):
         return self.stats.get(attr, default)
 
     def inc_stat(self, attr, val):
+        """
+        increment statistic by val
+        """
         if attr not in self.stats:
             self.stats[attr] = 0.0
         self.stats[attr] += val            
@@ -401,6 +411,9 @@ class StatPStore(IPstore):
     
 
 class PStore1(IPstore):
+    """
+    Implements mapping functions
+    """
 
     def __init__(self, op, run_id, fname, strat):
         super(PStore1, self).__init__(op, run_id, fname, strat)
@@ -448,6 +461,10 @@ class DiskStore(IPstore):
         self.outidx = SpatialIndex(fname)
 
     def get_iter(self):
+        """
+        returns an iterator over the provenance hash entries
+        filters out metadata and reference entries
+        """
         badprefixes = ('key:', 'b:', 'ref:')
         for key in self.bdb.keys():
             if key.startswith("key:")  or key.startswith('b:') or key.startswith('ref:'):
@@ -469,6 +486,7 @@ class DiskStore(IPstore):
 
     def extract_outcells_enc(self, obj):
         """
+        computes the output cells from a hash entry
         NOTE: returns integer encoded coords
         """
         if self.spec.outcoords == Spec.KEY:
@@ -868,6 +886,9 @@ class DiskStore(IPstore):
 
 
 class PStore2(DiskStore):
+    """
+    Stores provenance of the form (out cells, binary payload).
+    """
     def __init__(self, op, run_id, fname, strat):
         super(PStore2, self).__init__(op, run_id, fname, strat)
         self.spec.payload = Spec.BINARY # ignore payload spec
@@ -988,6 +1009,10 @@ class PStore2(DiskStore):
 
     @instrument
     def flush(self):
+        """
+        This is a magical function that block serializes the buffered region pairs,
+        constructs hash entries and writes them out
+        """
         if len(self.outcounts) == 0: return
 
         # serialize key
@@ -1063,6 +1088,10 @@ class PStore2(DiskStore):
         super(PStore2, self).close()
             
 class PStore3(DiskStore):
+    """
+    Stores provenance of the form (outcells, incells)
+    where incells != binary payload
+    """
     def __init__(self, op, run_id, f, strat):
         super(PStore3, self).__init__(op, run_id, f, strat)
         self.outcache = None
@@ -1214,7 +1243,11 @@ class PStore3(DiskStore):
             valsize = struct.calcsize(fmt)
             if valbuf is None or valsize > len(valbuf):
                 self.inbufs[arridx] = create_string_buffer(valsize)
-            struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
+            try:
+                struct.pack_into(fmt, self.inbufs[arridx], 0, *iencs)
+            except:
+                import pdb
+                pdb.set_trace()
         self.inc_stat('serin', time.time() - start)
         
 
@@ -1470,12 +1503,16 @@ class PStore3(DiskStore):
 
         super(PStore3, self).close()
         end = time.time()        
-        print "Closing", self.op, (end-start)        
+        plog.debug("Closing\t%s\t%.4f", self.op, (end-start))
         
 
 
 
 class IBox(object):
+    """
+    Implements many of the methods used for re-execution based provenance store
+    """
+    
     def extract_incells(self, boxes, arridx, outcoords, inputs):
 
         newinputs = []

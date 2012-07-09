@@ -1,3 +1,7 @@
+"""
+compute query costs for simple LSST-like workflows
+"""
+
 import sys, random
 
 from bench_util import *

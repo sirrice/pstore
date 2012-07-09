@@ -40,7 +40,7 @@ class Spec(object):
     #OUTCOORD_ONE  = 2
     #OUTCOORD_MANY = 3
     BOX        = 4
-    KEY        = 5
+    KEY        = 5  # I think this is ref.
     PRED       = 6
     BINARY     = 7  # serialized to byte string
     GRID       = 8
