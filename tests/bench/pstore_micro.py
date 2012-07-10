@@ -97,7 +97,7 @@ class BenchOp(Op):
 def setup_table(db):
     cur = db.cursor()
     create = """create table stats(id integer primary key autoincrement, strat varchar(128),
-                fanin int, fanout int, noutput int,
+                fanin int, fanout int, noutput int, payload_size int,
                 wcost float, incache float, outcache float, flush float, serout float, serin float,
                 mergecost float, bdbcost float, disk int, idx int)"""
     try:
@@ -258,11 +258,11 @@ def run_config(cur, config, op, runid, arr_shape, niter=1):
     if Mode.PT_MAPFUNC in strat.modes():
         stratname = '%s_%d' % (stratname, payload_size)
     
-    params = [str(strat), fanin, fanout, noutput]
+    params = [stratname, fanin, fanout, noutput]
     params.extend(costs)
-    sql = """insert into stats(strat, fanin, fanout, noutput,
+    sql = """insert into stats(strat, fanin, fanout, noutput, payload_size
              wcost, incache, outcache, flush, serout, serin,
-             mergecost, bdbcost, disk, idx ) values(%s)""" % (','.join(["?"]*(len(params)))) 
+             mergecost, bdbcost, disk, idx, payload_size ) values(%s)""" % (','.join(["?"]*(len(params)))) 
     cur.execute(sql, tuple(params))
     sid = cur.lastrowid
 
