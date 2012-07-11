@@ -258,11 +258,11 @@ def run_config(cur, config, op, runid, arr_shape, niter=1):
     if Mode.PT_MAPFUNC in strat.modes():
         stratname = '%s_%d' % (stratname, payload_size)
     
-    params = [stratname, fanin, fanout, noutput]
+    params = [stratname, fanin, fanout, noutput, payload_size]
     params.extend(costs)
-    sql = """insert into stats(strat, fanin, fanout, noutput, payload_size
+    sql = """insert into stats(strat, fanin, fanout, noutput, payload_size,
              wcost, incache, outcache, flush, serout, serin,
-             mergecost, bdbcost, disk, idx, payload_size ) values(%s)""" % (','.join(["?"]*(len(params)))) 
+             mergecost, bdbcost, disk, idx ) values(%s)""" % (','.join(["?"]*(len(params)))) 
     cur.execute(sql, tuple(params))
     sid = cur.lastrowid
 
@@ -288,7 +288,7 @@ def run_queries(cur, qsizes, sid, pstore, arr_shape):
             sql = """insert into qcosts values (%s)""" % (','.join(['?']*len(params)))
             cur.execute(sql, tuple(params))
 
-def run_query(qsize, backward, pstore, arr_shape, niter=5):
+def run_query(qsize, backward, pstore, arr_shape, niter=50):
     all_stats = []
 
     for i in xrange(niter):
@@ -308,6 +308,9 @@ def run_query(qsize, backward, pstore, arr_shape, niter=5):
             nres += 1
 
         cost = time.time() - start
+	if cost > 15 and len(all_stats) > 5:
+	    break
+	    
 
 
         stats = [cost, nres]
@@ -334,29 +337,33 @@ if __name__ == '__main__':
     strats = [
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.GRID), True),            
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-
         #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-
-        
         #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.GRID), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
         #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.BOX), True),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
 
+
+
+	# used strategies in the experiments
+#        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+#        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+#
+#        
+#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+#
         Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
         Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
 
 
         # forward optimized
-        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
+#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
 
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), False),
-        # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),
-        #Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
+
     ]
 
     noutputs = (1000, 10000, 100000)
@@ -374,9 +381,9 @@ if __name__ == '__main__':
 
                 # payload can ignore fanout values!
                 if Mode.PT_MAPFUNC in strat.modes():
-                    fanout = 10
+                    fanin = 10
 
-                    for fanin in fanins:
+                    for fanout in fanouts:
                         for payload_size in payload_sizes:
                             yield (strat, fanin, fanout, noutput, payload_size)
 
