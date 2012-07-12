@@ -348,29 +348,29 @@ if __name__ == '__main__':
 
 
 	# used strategies in the experiments
-#        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
-#        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
-#
-#        
-#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
-#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
-#
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.KEY), True),
+
+        
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), True),
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), True),            
+
         Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_MANY, Spec.BINARY), True),
         Strat.single(Mode.PT_MAPFUNC, Spec(Spec.COORD_ONE, Spec.BINARY), True),
 
 
         # forward optimized
-#        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
+        Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.KEY), False),        
         
 
 
     ]
 
-    noutputs = (1000, 10000, 100000)
+    noutputs = (5000, 50000) #(1000, 10000, 100000)
     fanins = [1, 10, 50, 100]
     fanouts = [100, 50, 1]
     qsizes = [1, 100, 1000]
-    payload_sizes = [0, 10, 50, 100]
+    payload_sizes = [50]#0, 10, 50, 100]
     arr_shape = (1000, 1000)
 
 
@@ -381,7 +381,7 @@ if __name__ == '__main__':
 
                 # payload can ignore fanout values!
                 if Mode.PT_MAPFUNC in strat.modes():
-                    fanin = 10
+                    fanin = 10 
 
                     for fanout in fanouts:
                         for payload_size in payload_sizes:
