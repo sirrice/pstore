@@ -194,7 +194,8 @@ def get_plot(runmode):
             for k,v in queries.items():
                 if path == tuple(v):
                     d[path].append(k)
-        
+        import pdb
+        pdb.set_trace()
         for path in allpaths:
             qname = '%sQ %d' % (path[0][1] and 'F' or 'B', allpaths[path])            
             if path not in d:
