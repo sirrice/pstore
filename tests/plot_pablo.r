@@ -49,7 +49,7 @@ p = p + scale_fill_manual(values=cbbPalette)
 p = p + scale_x_discrete('Storage Strategies')
 p = fmt.fn(p)
 #p = p + opts(axis.title.y=theme_text(size=17, angle=90, lineheight=0.8, hjust=0.9))
-pdf(file=outName, width=10, height=3)
+pdf(file=outName, width=10, height=4)
 p
 dev.off()
 

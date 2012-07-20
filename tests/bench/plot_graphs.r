@@ -62,17 +62,17 @@ alldata$Strategy = alldata$strat
 pidxs = str_detect(alldata$Strategy, 'PTMAP')
 alldata$payload_size[alldata$payload_size == 0] = 1
 alldata$fanin[pidxs] = alldata$payload_size[pidxs]
-alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_MANY')] =   '<-, MANY, BIN'
-alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_ONE')] =    '<-, ONE,  BIN'
-alldata$Strategy[str_detect(alldata$Strategy, 'MANY_MANY_b')] =  '<-, MANY, MANY'
-alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_b')] =    '<-, ONE,  REF'
-alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_f')] =    '->, ONE,  REF'
+alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_MANY')] =   '<-, PayMany'
+alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_ONE')] =    '<-, PayOne'
+alldata$Strategy[str_detect(alldata$Strategy, 'MANY_MANY_b')] =  '<-, FullMany'
+alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_b')] =    '<-, FullOne'
+alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_f')] =    '->, FullOne'
 alldata$Strategy[str_detect(alldata$Strategy, 'Q')] =            'BlackBox' 
-levels = c('<-, MANY, BIN' ,
-           '<-, ONE,  BIN' ,
-           '<-, MANY, MANY',
-           '<-, ONE,  REF' ,
-           '->, ONE,  REF',
+levels = c('<-, PayMany',
+           '<-, PayOne',
+           '<-, FullMany',
+           '<-, FullOne',
+           '->, FullOne',
            'BlackBox')
 alldata$Strategy = factor(alldata$Strategy, levels)
 
@@ -101,8 +101,8 @@ bigdata = bigdata[!(bigdata$fanout %in% c(2, 5)),]
 #bigdata = bigdata[bigdata$Strategy != 'BlackBox',]
 
 
-data = bigdata[bigdata$fanout %in% c(1, 10, 100), c('fanout', 'Strategy', 'fanin', 'disk', 'wcost')]
-dd = data.frame(fanin=c(1, 10, 100))
+data = bigdata[bigdata$fanout %in% c(1, 10), c('fanout', 'Strategy', 'fanin', 'disk', 'wcost')]
+dd = data.frame(fanin=c(1, 10))
 dd$fanout = 10
 dd$Strategy = 'BlackBox'
 dd$disk = 0
@@ -123,7 +123,7 @@ p = p + geom_point()
 p = p + scale_shape(solid=F)
 p = p + scale_shape_discrete()
 p = p + facet_grid(statname ~ fanout, scale='free_y', labeller=lbl.fn)
-p = p + coord_cartesian(ylim=c(0, 40)) 
+#p = p + coord_cartesian(ylim=c(0, 40)) 
 p = p + scale_color_manual(values=cbbPalette)
 p = p + scale_x_continuous('Fanin')
 p = p + scale_y_continuous('Runtime (sec)             Disk (MB)\n', breaks=c(0, 10, 20, 30))
@@ -167,33 +167,33 @@ dev.off()
 
 
 qdata = alldata
-qdata = qdata[qdata$fanin %in% c(1, 50, 100) & qdata$qsize != 100 & qdata$noutput == 100000,]
+qdata = qdata[qdata$fanin %in% c(1, 50, 100) & qdata$qsize == 1000 & qdata$noutput == 100000,]
 
 
 bdata = qdata[qdata$backward == 1 & str_detect(qdata$Strategy, '<-') & qdata$fanout %in% c(1, 100),]
 p = qplot(fanin, cost, data=bdata, group=Strategy, color=Strategy, shape=Strategy, solid=F, geom=c('point','line'))
-p = p + facet_grid(fanout~qsize, labeller=lbl.fn)
-p = p + scale_color_manual(values=cbbPalette, name = 'Fanin')
-p = p + scale_shape_discrete(name = 'Fanin')
+p = p + facet_grid(.~fanout, labeller=lbl.fn)
+p = p + scale_color_manual(values=cbbPalette, name = 'Strategy')
+p = p + scale_shape_discrete(name = 'Strategy')
 p = p + guides(shape=F)
-p = p + scale_x_continuous('Strategy')
-p = p + scale_y_continuous('Query Cost (sec, log)\n', breaks=c(0, .05, .1))#, limits=c(0.0001,1))
+p = p + scale_x_continuous('Fanin')
+p = p + scale_y_continuous('Query Cost (sec)\n', breaks=c(0, .05, .1))#, limits=c(0.0001,1))
 p = fmt.fn(p)
-pdf(file= '_figs/query_back.pdf', width=10, height=4)
+pdf(file= '_figs/query_back.pdf', width=10, height=3)
 p
 dev.off()
 
 
 
 
-fdata = qdata[qdata$backward == 0 & str_detect(qdata$Strategy, '->') & qdata$fanout %in% c(1, 50, 100),]
+fdata = qdata[qdata$backward == 0 & str_detect(qdata$Strategy, '->') & qdata$fanout %in% c(1, 100),]
 fdata$fanout = factor(as.character(fdata$fanout), c('1', '50', '100'))
-p = qplot(fanin, cost, data=fdata, group=fanout, color=fanout, shape=fanout, solid=F, geom=c('point','line'))
-p = p + facet_grid(.~qsize, labeller=lbl.fn)
-p = p + scale_color_manual(values=cbbPalette, name = 'Fanout')
-p = p + scale_shape_discrete(name = 'Fanout')
+p = qplot(fanin, cost, data=fdata, group=fanout, solid=F, geom=c('point','line'))
+p = p + facet_grid(.~fanout, labeller=lbl.fn)
+#p = p + scale_color_manual(values=cbbPalette, name = 'Fanout')
+#p = p + scale_shape_discrete(name = 'Fanout')
 p = p + scale_x_continuous('Fanin')
-p = p + scale_y_continuous('Query Cost (sec, log)\n', breaks=c(0, 0.03, 0.06))
+p = p + scale_y_continuous('Query Cost (sec)\n', breaks=c(0, 0.03, 0.06))
 p = fmt.fn(p)
 p = p + opts(axis.title.y=theme_text(size=17, angle=90, lineheight=0.8, hjust=0.9))
 pdf(file= '_figs/query_forw.pdf', width=10, height=3)
