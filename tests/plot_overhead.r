@@ -39,6 +39,11 @@ if (sum(exps$runtype == 'SubZero10') > 0) {
 
 merged = merge(exps, overhead, on='id')
 
+# for NSF plots
+## merged = merged[merged$runtype %in% c('BlackBox', 'FullOne', 'SubZero'),]
+## merged$runtype[merged$runtype == 'FullOne'] = 'Cell Level'
+## merged
+
 d1 = merged
 d1$stat = d1$disk
 d1$statname = 'Disk Cost'

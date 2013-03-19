@@ -52,6 +52,14 @@ fmt.fn = function(p) {
 
 cbbPalette <- c("#E69F00", "#56B4E9", "#009E73", "#E64341", "#0072B2", "#D55E00", "#CC79A7", "#000000")
 
+
+cbbPalette = c('#99D8C9',
+  '#2CA25F',
+  '#FDAE6B',
+  '#E6550D',
+  '#2B8CBE',
+  '#DD1C77')
+
 drv = dbDriver('SQLite')
 con = dbConnect(drv, dbname='./results/micro.jul.9.2012')
 alldata = dbGetQuery(con, 'select * from stats, qcosts where stats.id = qcosts.sid')
@@ -62,17 +70,17 @@ alldata$Strategy = alldata$strat
 pidxs = str_detect(alldata$Strategy, 'PTMAP')
 alldata$payload_size[alldata$payload_size == 0] = 1
 alldata$fanin[pidxs] = alldata$payload_size[pidxs]
-alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_MANY')] =   '<-, PayMany'
-alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_ONE')] =    '<-, PayOne'
-alldata$Strategy[str_detect(alldata$Strategy, 'MANY_MANY_b')] =  '<-, FullMany'
-alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_b')] =    '<-, FullOne'
-alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_f')] =    '->, FullOne'
+alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_MANY')] =   '<- PayMany'
+alldata$Strategy[str_detect(alldata$Strategy, 'PTMAP_ONE')] =    '<- PayOne'
+alldata$Strategy[str_detect(alldata$Strategy, 'MANY_MANY_b')] =  '<- FullMany'
+alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_b')] =    '<- FullOne'
+alldata$Strategy[str_detect(alldata$Strategy, 'ONE_KEY_f')] =    '-> FullOne'
 alldata$Strategy[str_detect(alldata$Strategy, 'Q')] =            'BlackBox' 
-levels = c('<-, PayMany',
-           '<-, PayOne',
-           '<-, FullMany',
-           '<-, FullOne',
-           '->, FullOne',
+levels = c('<- PayMany',
+           '<- PayOne',
+           '<- FullMany',
+           '<- FullOne',
+           '-> FullOne',
            'BlackBox')
 alldata$Strategy = factor(alldata$Strategy, levels)
 
@@ -101,9 +109,9 @@ bigdata = bigdata[!(bigdata$fanout %in% c(2, 5)),]
 #bigdata = bigdata[bigdata$Strategy != 'BlackBox',]
 
 
-data = bigdata[bigdata$fanout %in% c(1, 10), c('fanout', 'Strategy', 'fanin', 'disk', 'wcost')]
-dd = data.frame(fanin=c(1, 10))
-dd$fanout = 10
+data = bigdata[bigdata$fanout %in% c(1, 100), c('fanout', 'Strategy', 'fanin', 'disk', 'wcost')]
+dd = data.frame(fanin=c(1, 100))
+dd$fanout = 100
 dd$Strategy = 'BlackBox'
 dd$disk = 0
 dd$wcost = 0
@@ -123,10 +131,11 @@ p = p + geom_point()
 p = p + scale_shape(solid=F)
 p = p + scale_shape_discrete()
 p = p + facet_grid(statname ~ fanout, scale='free_y', labeller=lbl.fn)
-#p = p + coord_cartesian(ylim=c(0, 40)) 
+p = p + coord_cartesian(ylim=c(0, 40)) 
 p = p + scale_color_manual(values=cbbPalette)
 p = p + scale_x_continuous('Fanin')
-p = p + scale_y_continuous('Runtime (sec)             Disk (MB)\n', breaks=c(0, 10, 20, 30))
+p = p + scale_y_continuous('Runtime (sec)          Disk (MB)   \n', breaks=c(0, 10, 20, 30))
+#p = p + geom_hline(y = 1000 * 1000 * 4 / 1048576.0, size=0.3, colour="#555555", linetype=2)
 p = fmt.fn(p)
 pdf(file= '_figs/overhead.pdf', width=10, height=5)
 p
@@ -170,14 +179,15 @@ qdata = alldata
 qdata = qdata[qdata$fanin %in% c(1, 50, 100) & qdata$qsize == 1000 & qdata$noutput == 100000,]
 
 
-bdata = qdata[qdata$backward == 1 & str_detect(qdata$Strategy, '<-') & qdata$fanout %in% c(1, 100),]
+bdata = qdata[qdata$backward == 1 & str_detect(qdata$Strategy, '<-') &  qdata$fanout %in% c(1, 100),]
 p = qplot(fanin, cost, data=bdata, group=Strategy, color=Strategy, shape=Strategy, solid=F, geom=c('point','line'))
 p = p + facet_grid(.~fanout, labeller=lbl.fn)
 p = p + scale_color_manual(values=cbbPalette, name = 'Strategy')
 p = p + scale_shape_discrete(name = 'Strategy')
 p = p + guides(shape=F)
 p = p + scale_x_continuous('Fanin')
-p = p + scale_y_continuous('Query Cost (sec)\n', breaks=c(0, .05, .1))#, limits=c(0.0001,1))
+p = p + scale_y_continuous('Query Cost (sec)\n', breaks=c(0, 0.025,
+                                                   .05, 0.075, .1))#, limits=c(0.0001,1))
 p = fmt.fn(p)
 pdf(file= '_figs/query_back.pdf', width=10, height=3)
 p

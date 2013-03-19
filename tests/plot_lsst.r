@@ -27,6 +27,7 @@ exps = getExperiments(con, RUNMODE)
 r = getQueryCosts(con, exps)
 compdata = merge(exps, r)
 
+
 fcon = dbConnect(drv, dbname='./results/lsstfull.db.nov.24.2011.slowforward')
 fexps = getExperiments(fcon, RUNMODE)
 fr = getQueryCosts(fcon, fexps)
@@ -38,6 +39,11 @@ fcompdata = merge(fexps, fr, on='id')
 data = rbind(compdata, fcompdata)
 data$Strategy = data$runtype
 data$Query = data$name
+
+# for NSF plots
+## data = data[data$Strategy %in% c('BlackBox', 'FullOne', 'SubZero') & data$Query != 'FQ 0 Slow',]
+## data$Strategy[data$Strategy == 'FullOne'] = 'Cell Level'
+
 
 p = qplot(Strategy, cost, data=data, fill=Query, geom='bar', position='dodge')
 p = p + scale_y_log10('Query Cost\n(sec, log)\n')
