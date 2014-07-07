@@ -1,7 +1,7 @@
 import numpy, os, random, math
 from operator import mul
 from scipy import ndimage
-import bsddb3
+import bsddb as bsddb3
 
 def get_db(fname, new=False, fsync=False):
     env = bsddb3.db.DBEnv()

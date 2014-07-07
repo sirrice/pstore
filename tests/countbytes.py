@@ -1,4 +1,4 @@
-import bsddb3 as bsddb
+import bsddb
 import sys, os, math
 from cStringIO import StringIO
 sys.path.append('../')

@@ -96,7 +96,7 @@ def printit(params, wcosts, rcosts):
 if __name__ == "__main__":
     import sys
 
-    conn = get_db()
+    conn = get_bench_db()
 
 
     random.seed(0)

@@ -466,8 +466,8 @@ def pstore_name(shape, strat, noutput, fanin, oclustsize, density):
 
 
 
-def get_db():
-    conn = pg.connect("dbname=microbench")
+def get_bench_db():
+    conn = pg.connect("host=localhost dbname=microbench")
     setup(conn)
     return conn
 

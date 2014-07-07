@@ -37,7 +37,7 @@ if __name__ == '__main__':
         # Strat.single(Mode.QUERY, Spec(Spec.NONE, Spec.NONE), True),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.COORD_MANY), False),
         # Strat.single(Mode.PTR, Spec(Spec.COORD_ONE, Spec.COORD_MANY), False),
-        Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), False),                
+        #Strat.single(Mode.PTR, Spec(Spec.COORD_MANY, Spec.BOX), False),                
         # Strat.single(Mode.PT_MAPFUNC|Mode.FULL_MAPFUNC,
         #              Spec(Spec.COORD_ONE, Spec.BINARY), True),
         #Strat.single(Mode.PT_MAPFUNC|Mode.FULL_MAPFUNC,

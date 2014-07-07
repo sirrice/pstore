@@ -126,7 +126,7 @@ args:
     inputsize = ArrayStore.instance().size(arrid)
     del emptyarr
 
-    conn = get_db()
+    conn = get_bench_db()
 
     if sys.argv[1].strip() == 'model':
         experiment = run_model

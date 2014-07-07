@@ -1,5 +1,5 @@
 import struct, math, time, random
-import bsddb3 as bsddb
+import bsddb
 from StringIO import StringIO
 from operator import mul, or_, and_
 from ctypes import create_string_buffer

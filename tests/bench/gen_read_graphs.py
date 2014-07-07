@@ -111,7 +111,7 @@ def plot(conn, xlabel, ylabel, run, where='1=1', table='stats', plotargs={}):
     c.close()
         
 from bench_util import *
-conn = get_db()
+conn = get_bench_db()
 
 #=== attributes ===
 # x axis
