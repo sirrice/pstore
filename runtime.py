@@ -1,4 +1,10 @@
-import sqlite3, time, logging, sys, pickle
+import os
+import sqlite3
+import time
+import logging
+import sys
+import pickle
+
 from provstore import *
 from strat import *
 
@@ -8,6 +14,10 @@ logging.basicConfig()
 log.setLevel(logging.DEBUG)
 
 PSTOREDIR = './_pstore'
+try:
+  os.mkdir(PSTOREDIR)
+except:
+  pass
 
 class Runtime(object):
     """
