@@ -2,10 +2,6 @@ import os, logging, numpy, time
 from util import print_matrix
 from runtime import *
 from stats import Stats
-from cvxopt.glpk import ilp
-from cvxopt import *
-from cvxopt import glpk
-
 
 nlog = logging.getLogger('nlp')
 logging.basicConfig()
@@ -131,6 +127,11 @@ def nlp_exec_cvx(c, ops, matstrats, trips, G, h, A, b):
     @return newassignments, prov_to_remove
     prov_to_remove is a list of (op, runid) pairs
     """
+    from cvxopt.glpk import ilp
+    from cvxopt import *
+    from cvxopt import glpk
+
+
     # solvers.options['show_progress'] = False
     # solvers.options['LPX_K_MSGLEV'] = 0
     # solvers.options['MessageLevel'] = 3
